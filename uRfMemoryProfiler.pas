@@ -1,5 +1,10 @@
 unit uRfMemoryProfiler;
 
+{Versão 0.2
+  - Added: recurso para identificar quantidade de buffers e seus tamanhados alocados no sistema
+  - Changed: Adicionado mais informações no relatório (SaveMemoryProfileToFile)
+}
+
 {Versão 0.1
   - Added: recurso para contar quantidade de objetos no sistema.
   - Added: Possibilidade de gerar relatório (SaveMemoryProfileToFile)

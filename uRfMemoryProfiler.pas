@@ -295,20 +295,27 @@ procedure SaveMemoryProfileToFile;
 var
   LStringList: TStringList;
   i: Integer;
+  LClassVar: TClassVars;
 begin
   LStringList := TStringList.Create;
   try
-    LStringList.Add('CLASS | NUMBER OF INSTANCES');
+    LStringList.Add('CLASS | INSTANCE SIZE | NUMBER OF INSTANCES | TOTAL');
     {$IFDEF TRACEINSTANCES}
     for i := 0 to SListClassVars.Count -1 do
-      if TClassVars(SListClassVars.Items[I]).BaseInstanceCount > 0 then
-        LStringList.Add(TClassVars(SListClassVars.Items[I]).BaseClassName + '|' + IntToStr(TClassVars(SListClassVars.Items[I]).BaseInstanceCount));
+    begin
+      LClassVar := TClassVars(SListClassVars.Items[I]);
+      if LClassVar.BaseInstanceCount > 0 then
+      begin
+        LStringList.Add(Format('%s | %d bytes | %d | %d bytes',
+          [LClassVar.BaseClassName, LClassVar.BaseInstanceSize, LClassVar.BaseInstanceCount, LClassVar.BaseInstanceSize * LClassVar.BaseInstanceCount]));
+      end;
+    end;
     {$ENDIF}
 
     {$IFDEF TRACEBUFFER}
     for I := 0 to SIZE_OF_MAP do
       if RfMapOfBufferAllocation[I] > 0 then
-        LStringList.Add(Format('Mem. Size: %d | Amount: %d', [I, RfMapOfBufferAllocation[I]]));
+        LStringList.Add(Format('Buffer | %d bytes | %d | %d bytes', [I, RfMapOfBufferAllocation[I], RfMapOfBufferAllocation[I] * I]));
     {$ENDIF}
 
     LStringList.SaveToFile(ExtractFilePath(ParamStr(0)) + 'RfMemoryReport.txt');

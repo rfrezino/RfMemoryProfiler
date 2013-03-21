@@ -55,7 +55,9 @@ begin
      end;
 
      CheckTrue(RfMapOfBufferAllocation[BUFFER_SIZE] = 0, 'Quantidade de buffers esta errada');
+     LList.Clear;
   end;
+  LList.Free;
 end;
 
 procedure TestRfMemoryProfiller.TestObjectCounter;

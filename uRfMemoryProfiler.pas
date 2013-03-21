@@ -180,15 +180,24 @@ type
   MappedRecord = packed record
     Parity: Integer;
     SizeCounterAddr: Integer;
+
+    {$IFDEF TRACEBUFFERALLOCATION}
     AllocationAddr: Integer;
+    {$ENDIF}
 
     procedure SetParityByte; inline;
     procedure IncMapSizeCounter; inline;
+    {$IFDEF TRACEBUFFERALLOCATION}
     procedure IncAllocationMap; inline;
+    {$ENDIF}
 
     procedure ClearParityByte; inline;
     procedure DecMapSizeCounter; inline;
+
+    function Size: Integer; inline;
+    {$IFDEF TRACEBUFFERALLOCATION}
     procedure DecAllocationMap; inline;
+    {$ENDIF}
   end;
 
   TObjectHack = class(TObject)
@@ -589,7 +598,9 @@ begin
   begin
     SMapofBufferAddressAllocation[ABufSize] := TMemoryAddressBuffer.Create;
     SMapofBufferAddressAllocation[ABufSize].NumAllocations := AValue;
+    {$IFDEF TRACEBUFFERALLOCATION}
     SMapofBufferAddressAllocation[ABufSize].AllocationAddr := AInitialPointer.AllocationAddr;
+    {$ENDIF}
     Exit;
   end;
 
@@ -598,12 +609,14 @@ begin
 
   while (LMemoryBufferAddress <> nil) do
   begin
+    {$IFDEF TRACEBUFFERALLOCATION}
     if LMemoryBufferAddress.AllocationAddr <> AInitialPointer.AllocationAddr then
     begin
       LLastMemoryBufferAddress := LMemoryBufferAddress;
       LMemoryBufferAddress := LMemoryBufferAddress.Next;
       Continue;
     end;
+    {$ENDIF}
 
     SRCBufferCounter.Acquire;
     try
@@ -617,44 +630,15 @@ begin
   SRCBufferCounter.Acquire;
   try
     LMemoryBufferAddress := TMemoryAddressBuffer.Create;
+    {$IFDEF TRACEBUFFERALLOCATION}
     LMemoryBufferAddress.AllocationAddr := AInitialPointer.AllocationAddr;
+    {$ENDIF}
     LMemoryBufferAddress.NumAllocations := AValue;
 
     LLastMemoryBufferAddress.Next := LMemoryBufferAddress;
   finally
     SRCBufferCounter.Release;
   end;
-end;
-
-function NAllocMem(Size: Cardinal): Pointer;
-var
-  MapSize: Integer;
-  LMappedRecord: PMappedRecord;
-begin
-  if (Size = SIZE_OF_INT) then
-  begin
-    Result := SDefaultAllocMem(Size);
-    Exit;
-  end;
-
-  if Size > SIZE_OF_MAP then
-    MapSize := SIZE_OF_MAP
-  else
-    MapSize := Size;
-
-  Result := SDefaultAllocMem(Size + GAP_SIZE);
-  LMappedRecord := Result;
-
-  LMappedRecord^.SetParityByte;
-
-  LMappedRecord^.SizeCounterAddr := Integer(@RfMapOfBufferAllocation[MapSize]);
-  LMappedRecord^.IncMapSizeCounter;
-
-  {$IFDEF TRACEBUFFERALLOCATION}
-  LMappedRecord^.AllocationAddr := GetMemAllocIdentificator;
-  LMappedRecord^.IncAllocationMap;
-  {$ENDIF}
-  Result := Pointer(Integer(Result) + GAP_SIZE);
 end;
 
 function NGetMem(Size: Integer): Pointer;
@@ -674,6 +658,37 @@ begin
     MapSize := Size;
 
   Result := SDefaultGetMem(Size + GAP_SIZE);
+  LMappedRecord := Result;
+
+  LMappedRecord^.SetParityByte;
+
+  LMappedRecord^.SizeCounterAddr := Integer(@RfMapOfBufferAllocation[MapSize]);
+  LMappedRecord^.IncMapSizeCounter;
+
+  {$IFDEF TRACEBUFFERALLOCATION}
+  LMappedRecord^.AllocationAddr := GetMemAllocIdentificator;
+  LMappedRecord^.IncAllocationMap;
+  {$ENDIF}
+  Result := Pointer(Integer(Result) + GAP_SIZE);
+end;
+
+function NAllocMem(Size: Cardinal): Pointer;
+var
+  MapSize: Integer;
+  LMappedRecord: PMappedRecord;
+begin
+  if (Size = SIZE_OF_INT) then
+  begin
+    Result := SDefaultAllocMem(Size);
+    Exit;
+  end;
+
+  if Size > SIZE_OF_MAP then
+    MapSize := SIZE_OF_MAP
+  else
+    MapSize := Size;
+
+  Result := SDefaultAllocMem(Size + GAP_SIZE);
   LMappedRecord := Result;
 
   LMappedRecord^.SetParityByte;
@@ -770,35 +785,6 @@ begin
   LMemoryManager.AllocMem := NAllocMem;
 
   SetMemoryManager(LMemoryManager);
-end;
-
-procedure TestRecord;
-var
-  LTest: Pointer;
-  LPointer: Pointer;
-begin
-  LTest := AllocMem(1);
-  Dispose(LTest);
-
-  LTest := AllocMem(SIZE_OF_MAP + 1);
-  Dispose(LTest);
-
-  New(LTest);
-  ReallocMem(LTest, SIZE_OF_MAP +1);
-  Dispose(LTest);
-
-  LPointer := AllocMem(SIZE_OF_MAP + 1);
-  ReallocMem(LPointer, SIZE_OF_MAP + 10);
-  ReallocMem(LPointer, SIZE_OF_MAP div 10);
-  Dispose(LPointer);
-end;
-
-procedure TesteObject;
-var
-  LTestObject: TObject;
-begin
-  LTestObject := TObject.Create;
-  LTestObject.Free;
 end;
 
 destructor TClassVars.Destroy;
@@ -969,22 +955,16 @@ begin
   {$IFDEF TRACEINSTANCES}
   AddressPatch(GetMethodAddress(@OldNewInstance), @TObjectHack.NNewInstanceTrace);
   {$ENDIF}
-
-  TesteObject;
-  TestRecord;
-end;
-
-procedure FinalizeItems;
-begin
-  SRCBufferCounter.Free;
 end;
 
 { MappedRecord }
 
+{$IFDEF TRACEBUFFERALLOCATION}
 procedure MappedRecord.DecAllocationMap;
 begin
   MemoryBufferCounter(MemorySizeOfPos(SizeCounterAddr), PMappedRecord(@Self), -1);
 end;
+{$ENDIF}
 
 procedure MappedRecord.DecMapSizeCounter;
 begin
@@ -996,10 +976,12 @@ begin
   end;
 end;
 
+{$IFDEF TRACEBUFFERALLOCATION}
 procedure MappedRecord.IncAllocationMap;
 begin
   MemoryBufferCounter(MemorySizeOfPos(SizeCounterAddr), PMappedRecord(@Self), +1);
 end;
+{$ENDIF}
 
 procedure MappedRecord.IncMapSizeCounter;
 begin
@@ -1016,6 +998,11 @@ begin
   Parity := PARITY_BYTE;
 end;
 
+function MappedRecord.Size: Integer;
+begin
+  Result := (Self.SizeCounterAddr - Integer(@RfMapOfBufferAllocation)) div SIZE_OF_INT;
+end;
+
 procedure MappedRecord.ClearParityByte;
 begin
   Parity := 0;
@@ -1023,8 +1010,5 @@ end;
 
 initialization
   InitializeAnalyser
-
-finalization
-  FinalizeItems;
 
 end.

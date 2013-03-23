@@ -32,10 +32,14 @@ type
     procedure TestBufferGetMemCounter;
     procedure TestBufferFreeMemToGetMemCounter;
     procedure TestBufferPointerAddrToGetFree;
+
+    procedure TestBufferReallocMemCounter;
   published
     procedure TestCheckPerfomance;
+
     procedure TestBasicFunctionsAllocFree;
     procedure TestBasicFunctionsGetMemFree;
+    procedure TestRealloc;
   end;
 
 implementation
@@ -174,6 +178,29 @@ begin
   CheckTrue(IsSameValuesInAllocAndDeallocArray, 'Wrong allocation and deallocations address GetMem and FreeMem.');
 end;
 
+procedure TestBufferAllocation.TestBufferReallocMemCounter;
+var
+  I: Integer;
+  LPointer: Pointer;
+begin
+  for I := 0 to FBufferList.Count -1 do
+  begin
+    LPointer := FBufferList.Items[I];
+    ReallocMem(LPointer, BUFFER_TEST_REALOC_SIZE);
+  end;
+
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = 0, 'Wrong counter of buffer on base pointer on reallocation.');
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_REALOC_SIZE] = AMOUNT_OF_ALLOCATIONS, 'Wrong counter of buffer on new pointer on reallocation.');
+
+  for I := 0 to FBufferList.Count -1 do
+  begin
+    LPointer := FBufferList.Items[I];
+    FreeMem(LPointer);
+  end;
+
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_REALOC_SIZE] = 0, 'Wrong counter of buffer on new pointer on deallocation.');
+end;
+
 procedure TestBufferAllocation.TestCheckPerfomance;
 const
   LOOP_AMOUNT = 200;
@@ -256,6 +283,12 @@ begin
 
   CheckTrue(LDeltaAllocMem > 0.5, 'The new memory allocator is more than 50% slower the default method.');
   CheckTrue(LDeltaFreeMem > 0.5, 'The new free memory is more than 50% slower than the default methos');
+end;
+
+procedure TestBufferAllocation.TestRealloc;
+begin
+  TestBufferAllocMemCounter;
+  TestBufferReallocMemCounter;
 end;
 
 initialization

@@ -25,12 +25,17 @@ type
     procedure SetUp; override;
     procedure TearDown; override;
   public
-    procedure TestBufferAllocationCounter;
-    procedure TestBufferDeallocationCounter;
-    procedure TestBufferPointerAddr;
+    procedure TestBufferAllocMemCounter;
+    procedure TestBufferFreeMemToAllocMemCounter;
+    procedure TestBufferPointerAddrToAllocFree;
+
+    procedure TestBufferGetMemCounter;
+    procedure TestBufferFreeMemToGetMemCounter;
+    procedure TestBufferPointerAddrToGetFree;
   published
     procedure TestCheckPerfomance;
-    procedure TestBasicFunctions;
+    procedure TestBasicFunctionsAllocFree;
+    procedure TestBasicFunctionsGetMemFree;
   end;
 
 implementation
@@ -64,12 +69,12 @@ begin
   for I := 0 to LList.Count -1 do
     if TClassVars(LList.Items[I]).BaseClassName = 'TObjectTest' then
     begin
-      CheckTrue(TClassVars(LList.Items[I]).BaseInstanceCount = AMOUNT_OF_ALLOCATIONS, 'Não foi contado todos os itens.');
+      CheckTrue(TClassVars(LList.Items[I]).BaseInstanceCount = AMOUNT_OF_ALLOCATIONS, 'The object counter is not working as it should. The value in counter is different from the excepted.');
       LFound := True;
+      Break;
     end;
 
-  CheckTrue(LFound, 'Não foi cadastrado corretamente o objeto TObjectTest');
-  SaveMemoryProfileToFile;
+  CheckTrue(LFound, 'The object registration is not working');
   LObjectList.Free;
 end;
 
@@ -78,6 +83,7 @@ end;
 procedure TestBufferAllocation.SetUp;
 begin
   InitializeRfMemoryProfiler;
+  RfInitilializeAllocDeallocArrays;
   FBufferList := TList.Create;
 end;
 
@@ -86,23 +92,42 @@ begin
   FBufferList.Free;
 end;
 
-procedure TestBufferAllocation.TestBasicFunctions;
+procedure TestBufferAllocation.TestBasicFunctionsAllocFree;
 begin
-  TestBufferAllocationCounter;
-  TestBufferDeallocationCounter;
-  TestBufferPointerAddr;
+  Status('Testing TestBufferAllocMemCounter');
+  TestBufferAllocMemCounter;
+
+  Status('Testing TestBufferFreeMemToAllocMemCounter');
+  TestBufferFreeMemToAllocMemCounter;
+
+  Status('Testing TestBufferPointerAddrToAllocFree');
+  TestBufferPointerAddrToAllocFree;
 end;
 
-procedure TestBufferAllocation.TestBufferAllocationCounter;
+procedure TestBufferAllocation.TestBasicFunctionsGetMemFree;
+begin
+  Status('Testing TestBufferGetMemCounter');
+  TestBufferGetMemCounter;
+
+  Status('Testing TestBufferFreeMemToGetMemCounter');
+  TestBufferFreeMemToGetMemCounter;
+
+  Status('Testing TestBufferPointerAddrToGetFree');
+  TestBufferPointerAddrToGetFree;
+end;
+
+procedure TestBufferAllocation.TestBufferAllocMemCounter;
 var
   I: Integer;
 begin
   for I := 0 to AMOUNT_OF_ALLOCATIONS - 1 do
     FBufferList.Add(AllocMem(BUFFER_TEST_SIZE));
-  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = AMOUNT_OF_ALLOCATIONS, 'Wrong counter of buffer allocation.');
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = AMOUNT_OF_ALLOCATIONS, 'Wrong counter of buffer allocation for AllocMem.');
+
+  CheckTrue(ComparePointerListToAllocationAddress(FBufferList), 'The comparision btw the addresses pointer of allocmem result are not correct.');
 end;
 
-procedure TestBufferAllocation.TestBufferDeallocationCounter;
+procedure TestBufferAllocation.TestBufferFreeMemToAllocMemCounter;
 var
   I: Integer;
   LPointer: Pointer;
@@ -112,12 +137,41 @@ begin
     LPointer := FBufferList.Items[I];
     Dispose(LPointer);
   end;
-  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = 0, 'Wrong count of buffer deallocation.');
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = 0, 'Wrong count of buffer deallocation to AllocMem.');
 end;
 
-procedure TestBufferAllocation.TestBufferPointerAddr;
+procedure TestBufferAllocation.TestBufferFreeMemToGetMemCounter;
+var
+  I: Integer;
+  LPointer: Pointer;
 begin
-  CheckTrue(IsSameValuesInAllocationAndDeallocationArray, 'Wrong allocation and deallocations address.');
+  for I := 0 to AMOUNT_OF_ALLOCATIONS - 1 do
+  begin
+    LPointer := FBufferList.Items[I];
+    Dispose(LPointer);
+  end;
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = 0, 'Wrong count of buffer deallocation GetMem.');
+end;
+
+procedure TestBufferAllocation.TestBufferGetMemCounter;
+var
+  I: Integer;
+begin
+  for I := 0 to AMOUNT_OF_ALLOCATIONS - 1 do
+    FBufferList.Add(GetMemory(BUFFER_TEST_SIZE));
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = AMOUNT_OF_ALLOCATIONS, 'Wrong counter of buffer allocation GetMem.');
+
+  CheckTrue(ComparePointerListToAllocationAddress(FBufferList), 'The comparision btw the addresses pointer of GetMem result are not correct.');
+end;
+
+procedure TestBufferAllocation.TestBufferPointerAddrToAllocFree;
+begin
+  CheckTrue(IsSameValuesInAllocAndDeallocArray, 'Wrong allocation and deallocations address to AllocMem and FreeMem.');
+end;
+
+procedure TestBufferAllocation.TestBufferPointerAddrToGetFree;
+begin
+  CheckTrue(IsSameValuesInAllocAndDeallocArray, 'Wrong allocation and deallocations address GetMem and FreeMem.');
 end;
 
 procedure TestBufferAllocation.TestCheckPerfomance;
@@ -146,7 +200,7 @@ begin
     LStopWatcher.Reset;
     LStopWatcher.Start;
     for I := 0 to PERFOMANCE_AMOUNT_OF_ALLOCATIONS do
-      FBufferList.Add(SDefaultAllocMem(SIZE_OF_WORD));
+      FBufferList.Add(SDefaultAllocMem(SIZE_OF_INT));
     LStopWatcher.Stop;
 
     LDefaultAllocMemTime := LStopWatcher.ElapsedMilliseconds + LDefaultAllocMemTime;
@@ -166,7 +220,7 @@ begin
     LStopWatcher.Reset;
     LStopWatcher.Start;
     for I := 0 to PERFOMANCE_AMOUNT_OF_ALLOCATIONS do
-      FBufferList.Add(SDefaultAllocMem(SIZE_OF_WORD));
+      FBufferList.Add(SDefaultAllocMem(SIZE_OF_INT));
     LStopWatcher.Stop;
 
     LNewAllocMemTime := LStopWatcher.ElapsedMilliseconds + LNewAllocMemTime;

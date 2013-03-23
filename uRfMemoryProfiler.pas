@@ -706,6 +706,11 @@ begin
   LMappedRecord^.AllocationAddr := GetMemAllocIdentificator;
   LMappedRecord^.IncAllocationMap;
   {$ENDIF}
+
+  {$IFDEF UNITTEST}
+  if LMappedRecord.Size = BUFFER_TEST_SIZE then
+    SetAllocationAddress(LMappedRecord);
+  {$ENDIF}
   Result := Pointer(Integer(Result) + GAP_SIZE);
 end;
 

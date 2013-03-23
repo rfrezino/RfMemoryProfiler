@@ -2,19 +2,26 @@ unit uUnitTestHeader;
 
 interface
 
+uses
+  Classes;
+
 const
   AMOUNT_OF_ALLOCATIONS = 2000;
   PERFOMANCE_AMOUNT_OF_ALLOCATIONS = AMOUNT_OF_ALLOCATIONS * 100;
   BUFFER_TEST_SIZE = 777;
-  SIZE_OF_WORD = SizeOf(Integer);
+
+  SIZE_OF_INT = SizeOf(Integer);
+  PARITY_BYTE = 7777777;
+  GAP_SIZE = SizeOf(PARITY_BYTE) + SIZE_OF_INT {$IFDEF TRACEBUFFERALLOCATION} + SIZE_OF_INT {$ENDIF};
 
 type
   Address = integer;
 
-  procedure InitilializeArrays;
-  function IsSameValuesInAllocationAndDeallocationArray: Boolean;
+  procedure RfInitilializeAllocDeallocArrays;
+  function IsSameValuesInAllocAndDeallocArray: Boolean;
   procedure SetAllocationAddress(APointer: Pointer);
   procedure SetDeallocationAddress(APointer: Pointer);
+  function ComparePointerListToAllocationAddress(AList: TList): Boolean;
 
 implementation
 
@@ -28,10 +35,24 @@ var
   UCurrentAllocationArrayPos: Integer;
   UCurrentDeallocationArrayPos: Integer;
 
-procedure InitilializeArrays;
+procedure RfInitilializeAllocDeallocArrays;
 begin
   UCurrentAllocationArrayPos := 0;
   UCurrentDeallocationArrayPos := 0;
+end;
+
+function ComparePointerListToAllocationAddress(AList: TList): Boolean;
+var
+  I: Integer;
+  LPointer: Pointer;
+begin
+  for I := 0 to AList.Count -1 do
+  begin
+    LPointer := AList.Items[I];
+    Result := Integer((Integer(LPointer) - GAP_SIZE))  = UAllocation_Addresses[I];
+    if not Result then
+      Exit;
+  end;
 end;
 
 function IsSameValuesInArray(AArray1, AArray2: ArrayOfAddress): Boolean;
@@ -46,7 +67,7 @@ begin
   end;
 end;
 
-function IsSameValuesInAllocationAndDeallocationArray: Boolean;
+function IsSameValuesInAllocAndDeallocArray: Boolean;
 begin
   Result := IsSameValuesInArray(UAllocation_Addresses, UDeallocation_Addresses);
 end;

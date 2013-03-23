@@ -20,7 +20,8 @@ uses
   TestFramework,
   GUITestRunner,
   TextTestRunner,
-  TestuRfMemoryProfiler in 'TestuRfMemoryProfiler.pas';
+  TestuRfMemoryProfiler in 'TestuRfMemoryProfiler.pas',
+  uUnitTestHeader in 'uUnitTestHeader.pas';
 
 {$R *.RES}
 

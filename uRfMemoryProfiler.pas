@@ -81,13 +81,25 @@ interface
 {$ENDIF}
 
 uses
-  Classes, SyncObjs;
+  Classes, SyncObjs {$IFDEF UNITTEST}, uUnitTestHeader {$ENDIF};
 
   {It's a simple output to save the report of memory usage on the disk. It'll create a file called test.txt in the executable directory}
   procedure SaveMemoryProfileToFile;
 
   {Get the current list of instances (TClassVars)}
   function RfGetInstanceList: TList;
+
+  {$IFDEF UNITTEST}
+  procedure InitializeRfMemoryProfiler;
+  {$ENDIF}
+
+{$IFDEF UNITTEST}
+var
+  SDefaultGetMem: function(Size: Integer): Pointer;
+  SDefaultFreeMem: function(P: Pointer): Integer;
+  SDefaultReallocMem: function(P: Pointer; Size: Integer): Pointer;
+  SDefaultAllocMem: function(Size: Cardinal): Pointer;
+{$ENDIF}
 
 const
   SIZE_OF_MAP = 65365;
@@ -145,6 +157,7 @@ type
 
 var
   RfMapOfBufferAllocation: TArrayOfMap;
+  RfIsMemoryProfilerActive: Boolean;
 
 implementation
 
@@ -155,6 +168,8 @@ const
   SIZE_OF_INT = SizeOf(Integer);
   PARITY_BYTE = 7777777;
   GAP_SIZE = SizeOf(PARITY_BYTE) + SIZE_OF_INT {$IFDEF TRACEBUFFERALLOCATION} + SIZE_OF_INT {$ENDIF};
+  /// Delphi linker starts the code section at this fixed offset
+  CODE_SECTION = $1000;
 
 type
   TMemoryAddressBuffer = class
@@ -231,10 +246,12 @@ type
   end;
 
 var
+  {$IFNDEF UNITTEST}
   SDefaultGetMem: function(Size: Integer): Pointer;
   SDefaultFreeMem: function(P: Pointer): Integer;
   SDefaultReallocMem: function(P: Pointer; Size: Integer): Pointer;
   SDefaultAllocMem: function(Size: Cardinal): Pointer;
+  {$ENDIF}
 
   SThreadMemory: TThreadMemory;
   SListClassVars: TList;
@@ -246,6 +263,14 @@ var
   SRCBufferCounter: TCriticalSection;
 
 {$REGION 'Util'}
+procedure GetCodeOffset;
+var
+  LMapFile: string;
+begin
+  LMapFile := GetModuleName(hInstance);
+  SGetModuleHandle := GetModuleHandle(Pointer(ExtractFileName(LMapFile))) + CODE_SECTION;
+end;
+
 function GetMethodAddress(AStub: Pointer): Pointer;
 const
   CALL_OPCODE = $E8;
@@ -712,6 +737,11 @@ begin
   LMappedRecord^.AllocationAddr := GetMemAllocIdentificator;
   LMappedRecord^.IncAllocationMap;
   {$ENDIF}
+
+  {$IFDEF UNITTEST}
+    if Size = BUFFER_TEST_SIZE then
+      SetAllocationAddress(Result);
+  {$ENDIF}
   Result := Pointer(Integer(Result) + GAP_SIZE);
 end;
 
@@ -726,6 +756,11 @@ begin
     LMappedRecord^.DecMapSizeCounter;
     {$IFDEF TRACEBUFFERALLOCATION}
     LMappedRecord^.DecAllocationMap;
+    {$ENDIF}
+
+    {$IFDEF UNITTEST}
+    if LMappedRecord.Size = BUFFER_TEST_SIZE then
+      SetDeallocationAddress(LMappedRecord);
     {$ENDIF}
     Result := SDefaultFreeMem(LMappedRecord);
   end
@@ -920,55 +955,6 @@ begin
   LItem.NumAllocations := LItem.NumAllocations + 1;
 end;
 
-const
-  /// Delphi linker starts the code section at this fixed offset
-  CODE_SECTION = $1000;
-
-procedure GetCodeOffset;
-var
-  LMapFile: string;
-begin
-  LMapFile := GetModuleName(hInstance);
-  SGetModuleHandle := GetModuleHandle(Pointer(ExtractFileName(LMapFile))) + CODE_SECTION;
-end;
-
-procedure InitializeAnalyser;
-begin
-  SRCBufferCounter := TCriticalSection.Create;
-  GetCodeOffset;
-
-  SIsObjectAllocantionTraceOn := False;
-  {$IFDEF TRACEINSTACESALLOCATION}
-  SIsObjectAllocantionTraceOn := True;
-  {$ENDIF}
-
-  SIsBufferAllocationTraceOn := False;
-  {$IFDEF TRACEBUFFERALLOCATION}
-  SIsBufferAllocationTraceOn := True;
-  {$ENDIF}
-
-  {$IFDEF TRACEINSTANCES}
-  SListClassVars := TList.Create;
-  {$ENDIF}
-
-  {$IFDEF TRACEBUFFER}
-  InitializeArray;
-  {$ENDIF}
-
-  ApplyMemoryManager;
-  ///  Buffer wrapper
-  {$IFDEF TRACEBUFFER}
-    {$IFNDEF TRACEINSTANCES}
-    AddressPatch(GetMethodAddress(@OldNewInstance), @TObjectHack.NNewInstance);
-    {$ENDIF}
-  {$ENDIF}
-
-  ///Class wrapper
-  {$IFDEF TRACEINSTANCES}
-  AddressPatch(GetMethodAddress(@OldNewInstance), @TObjectHack.NNewInstanceTrace);
-  {$ENDIF}
-end;
-
 { MappedRecord }
 
 {$IFDEF TRACEBUFFERALLOCATION}
@@ -1020,7 +1006,52 @@ begin
   Parity := 0;
 end;
 
+procedure InitializeRfMemoryProfiler;
+begin
+  if RfIsMemoryProfilerActive then
+    Exit;
+
+  RfIsMemoryProfilerActive := True;
+
+  SRCBufferCounter := TCriticalSection.Create;
+  GetCodeOffset;
+
+  SIsObjectAllocantionTraceOn := False;
+  {$IFDEF TRACEINSTACESALLOCATION}
+  SIsObjectAllocantionTraceOn := True;
+  {$ENDIF}
+
+  SIsBufferAllocationTraceOn := False;
+  {$IFDEF TRACEBUFFERALLOCATION}
+  SIsBufferAllocationTraceOn := True;
+  {$ENDIF}
+
+  {$IFDEF TRACEINSTANCES}
+  SListClassVars := TList.Create;
+  {$ENDIF}
+
+  {$IFDEF TRACEBUFFER}
+  InitializeArray;
+  {$ENDIF}
+
+  ApplyMemoryManager;
+  ///  Buffer wrapper
+  {$IFDEF TRACEBUFFER}
+    {$IFNDEF TRACEINSTANCES}
+    AddressPatch(GetMethodAddress(@OldNewInstance), @TObjectHack.NNewInstance);
+    {$ENDIF}
+  {$ENDIF}
+
+  ///Class wrapper
+  {$IFDEF TRACEINSTANCES}
+  AddressPatch(GetMethodAddress(@OldNewInstance), @TObjectHack.NNewInstanceTrace);
+  {$ENDIF}
+end;
+
 initialization
-  InitializeAnalyser
+  RfIsMemoryProfilerActive := False;
+  {$IFNDEF UNITTEST}
+  InitializeRfMemoryProfiler;
+  {$ENDIF}
 
 end.

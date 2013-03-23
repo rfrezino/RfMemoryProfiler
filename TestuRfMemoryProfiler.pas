@@ -35,6 +35,9 @@ type
 
 implementation
 
+uses
+  SysUtils;
+
 procedure TestRfMemoryProfiller.SetUp;
 begin
   InitializeRfMemoryProfiler;
@@ -118,6 +121,8 @@ begin
 end;
 
 procedure TestBufferAllocation.TestCheckPerfomance;
+const
+  LOOP_AMOUNT = 200;
 var
   LStopWatcher: TStopwatch;
   I: Integer;
@@ -127,6 +132,8 @@ var
   LNewFreeMemTime: Int64;
   LPointer: Pointer;
   II: Integer;
+  LDeltaAllocMem: Extended;
+  LDeltaFreeMem: Extended;
 begin
   LDefaultAllocMemTime := 0;
   LDefaultFreeMemTime := 0;
@@ -134,7 +141,7 @@ begin
   LNewFreeMemTime := 0;
   //Old callers
   LStopWatcher := TStopwatch.Create;
-  for II := 0 to 200 do
+  for II := 0 to LOOP_AMOUNT do
   begin
     LStopWatcher.Reset;
     LStopWatcher.Start;
@@ -177,7 +184,24 @@ begin
     FBufferList.Clear;
   end;
 
-  Self.Status('Perfomance final report');
+  LDeltaAllocMem := (LDefaultAllocMemTime / LNewAllocMemTime);
+  LDeltaFreeMem := (LDefaultFreeMemTime / LNewFreeMemTime);
+
+  Status('------------------ Perfomance Test ------------------');
+  Status(Format('Amount of items allocated/deallocated: %d', [LOOP_AMOUNT * PERFOMANCE_AMOUNT_OF_ALLOCATIONS]));
+
+  Status('-- AllocMem: ');
+  Status(Format('  Default: Spent %d ms', [LDefaultAllocMemTime]));
+  Status(Format('  New: Spent %d ms', [LNewAllocMemTime]));
+  Status(Format('  Speed delta: %2.2f %%',[(LDeltaAllocMem * 100) - 100]));
+
+  Status('-- FreeMem: ');
+  Status(Format('  Default: Spent %d ms', [LDefaultFreeMemTime]));
+  Status(Format('  New: Spent %d ms', [LNewFreeMemTime]));
+  Status(Format('  Speed delta: %2.2f %%',[(LDeltaFreeMem * 100) - 100]));
+
+  CheckTrue(LDeltaAllocMem > 0.5, 'The new memory allocator is more than 50% slower the default method.');
+  CheckTrue(LDeltaFreeMem > 0.5, 'The new free memory is more than 50% slower than the default methos');
 end;
 
 initialization

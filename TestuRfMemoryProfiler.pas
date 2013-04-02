@@ -3,8 +3,9 @@ unit TestuRfMemoryProfiler;
 interface
 
 uses
-  TestFramework, uRfMemoryProfiler, SyncObjs, Classes, Contnrs, uUnitTestHeader, Diagnostics;
+  TestFramework, uRfMemoryProfiler, SyncObjs, Classes, Contnrs, uUnitTestHeader, Diagnostics, Windows;
 
+{$DEFINE TRACEINSTACESALLOCATION}
 type
   // Test methods for class TAllocationMap
 
@@ -16,6 +17,10 @@ type
     procedure TearDown; override;
   published
     procedure TestObjectCounter;
+    {$IFDEF TRACEINSTACESALLOCATION}
+    procedure TestTraceObjectAllocation;
+    {$ENDIF}
+
   end;
 
   TestBufferAllocation = class(TTestCase)
@@ -47,6 +52,20 @@ implementation
 uses
   SysUtils;
 
+var
+  UGetModuleHandle: Cardinal;
+
+const
+  CODE_SECTION = $1000;
+
+procedure GetCodeOffset;
+var
+  LMapFile: string;
+begin
+  LMapFile := GetModuleName(hInstance);
+  UGetModuleHandle := GetModuleHandle(Pointer(ExtractFileName(LMapFile))) + CODE_SECTION;
+end;
+
 procedure TestRfMemoryProfiller.SetUp;
 begin
   InitializeRfMemoryProfiler;
@@ -61,7 +80,7 @@ var
   LObjectList: TObjectList;
   I: Integer;
   LList: TList;
-  LClassVars: TClassVars;
+  LClassVars: TRfClassController;
   LFound: Boolean;
 begin
   LObjectList := TObjectList.Create;
@@ -71,9 +90,9 @@ begin
   LFound := False;
   LList := RfGetInstanceList;
   for I := 0 to LList.Count -1 do
-    if TClassVars(LList.Items[I]).BaseClassName = 'TObjectTest' then
+    if TRfClassController(LList.Items[I]).BaseClassName = 'TObjectTest' then
     begin
-      CheckTrue(TClassVars(LList.Items[I]).BaseInstanceCount = AMOUNT_OF_ALLOCATIONS, 'The object counter is not working as it should. The value in counter is different from the excepted.');
+      CheckTrue(TRfClassController(LList.Items[I]).BaseInstanceCount = AMOUNT_OF_ALLOCATIONS, 'The object counter is not working as it should. The value in counter is different from the excepted.');
       LFound := True;
       Break;
     end;
@@ -81,6 +100,38 @@ begin
   CheckTrue(LFound, 'The object registration is not working');
   LObjectList.Free;
 end;
+
+{$IFDEF TRACEINSTACESALLOCATION}
+procedure TestRfMemoryProfiller.TestTraceObjectAllocation;
+var
+  LStack: Integer;
+  LObjectTest: TRfObjectHack;
+  LAllocationMap: TAllocationMap;
+  I: Integer;
+  LObjectList: TObjectList;
+begin
+  {Get the addr of this procedure}
+  asm
+    mov LStack, ebp
+  end;
+  LStack := PInteger(Integer(LStack) + 4)^;
+  Dec(LStack, UGetModuleHandle);
+
+  LObjectList := TObjectList.Create;
+
+  for I := 0 to AMOUNT_OF_ALLOCATIONS -1 do
+  begin
+    LObjectTest := TRfObjectHack(TObject.Create);
+    LAllocationMap := LObjectTest.GetRfClassController.AllocationMap;
+
+    LObjectList.Add(LObjectTest);
+    CheckTrue(LObjectTest.AllocationAddress = LStack, 'Allocation address do not correspond to actual caller.');
+    CheckTrue(LAllocationMap.GetAllocationCounterByCallerAddr(LStack).NumAllocations = LObjectList.Count, 'Object allocation counter is not working.');
+  end;
+//  LObjectList.Free;
+  CheckTrue(LAllocationMap.GetAllocationCounterByCallerAddr(LStack).NumAllocations = 0, 'Object deallocation counter is not working.');
+end;
+{$ENDIF}
 
 { TestBufferAllocation }
 
@@ -292,6 +343,7 @@ begin
 end;
 
 initialization
+  GetCodeOffset;
   RegisterTest(TestRfMemoryProfiller.Suite);
   RegisterTest(TestBufferAllocation.Suite);
 end.

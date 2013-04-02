@@ -73,10 +73,10 @@ interface
 {$DEFINE TRACEINSTANCES}            {Directive used to track objects allocation}
 {$DEFINE TRACEBUFFER}               {Directive used to track buffer}
 
+{$DEFINE TRACEINSTACESALLOCATION} {Must have the TRACEINSTANCES directive ON to work}
+
 //This itens above are not all tested
 {$IFDEF NONCONCLUDEDITEMS}
-  {$DEFINE TRACEINSTACESALLOCATION}   {Must have the TRACEINSTANCES directive ON to work}
-
   {$DEFINE TRACEBUFFERALLOCATION}     {Must have the TRACEBUFFERALLOCATION directive ON to work}
 {$ENDIF}
 
@@ -134,13 +134,15 @@ type
     procedure IncCounter(LMemoryAddress: Integer);
     procedure DecCounter(LMemoryAddress: Integer);
 
+    function GetAllocationCounterByCallerAddr(ACallerAddr: Cardinal): TMemoryAddress;
+
     function Count: Integer;
 
     property Items[Index: Integer]: TMemoryAddress read GetItems;
   end;
 
-  PClassVars = ^TClassVars;
-  TClassVars = class(TObject)
+  PRfClassController = ^TRfClassController;
+  TRfClassController = class(TObject)
   private
     OldVMTFreeInstance: Pointer;
   public
@@ -154,6 +156,30 @@ type
     constructor Create;
     destructor Destroy; override;
   end;
+
+  TRfObjectHack = class(TObject)
+  private
+    class procedure SetRfClassController(AClassVars: TRfClassController); //inline;
+
+    procedure IncCounter; inline;
+    procedure DecCounter; inline;
+    procedure CallOldFunction;
+
+    function GetAllocationAddress: Integer;
+    procedure SetAllocationAddress(const Value: Integer);
+
+    class function NNewInstance: TObject;
+    class function NNewInstanceTrace: TObject;
+    procedure NFreeInstance;
+  public
+    class function GetRfClassController: TRfClassController; inline;
+
+    {$IFDEF TRACEINSTACESALLOCATION}
+    property AllocationAddress: Integer read GetAllocationAddress write SetAllocationAddress;
+    {$ENDIF}
+  end;
+
+  procedure RegisterClassVarsSupport(const Classes: array of TRfObjectHack);
 
 var
   RfMapOfBufferAllocation: TArrayOfMap;
@@ -217,31 +243,6 @@ type
     function Size: Integer; inline;
     {$IFDEF TRACEBUFFERALLOCATION}
     procedure DecAllocationMap; inline;
-    {$ENDIF}
-  end;
-
-  TObjectHack = class(TObject)
-  private
-    FCriticalSection: TCriticalSection;
-    class procedure SetClassVars(AClassVars: TClassVars); //inline;
-    class function GetClassVars: TClassVars; inline;
-
-    procedure IncCounter; inline;
-    procedure DecCounter; inline;
-    procedure CallOldFunction;
-
-    function GetAllocationAddress: Integer;
-    procedure SetAllocationAddress(const Value: Integer);
-  public
-    constructor Create;
-    destructor Destroy; override;
-
-    class function NNewInstance: TObject;
-    class function NNewInstanceTrace: TObject;
-    procedure NFreeInstance;
-
-    {$IFDEF TRACEINSTACESALLOCATION}
-    property AllocationAddress: Integer read GetAllocationAddress write SetAllocationAddress;
     {$ENDIF}
   end;
 
@@ -325,7 +326,7 @@ procedure SaveMemoryProfileToFile;
 var
   LStringList: TStringList;
   i: Integer;
-  LClassVar: TClassVars;
+  LClassVar: TRfClassController;
 begin
   LStringList := TStringList.Create;
   try
@@ -333,7 +334,7 @@ begin
     {$IFDEF TRACEINSTANCES}
     for i := 0 to SListClassVars.Count -1 do
     begin
-      LClassVar := TClassVars(SListClassVars.Items[I]);
+      LClassVar := TRfClassController(SListClassVars.Items[I]);
       if LClassVar.BaseInstanceCount > 0 then
       begin
         LStringList.Add(Format('%s | %d bytes | %d | %d bytes',
@@ -414,13 +415,13 @@ begin
   Result := VirtualProtect(lAddress, SIZE_OF_INT, lProtect, @lProtect);
 end;
 
-procedure RegisterClassVarsSupport(const Classes: array of TObjectHack);
+procedure RegisterClassVarsSupport(const Classes: array of TRfObjectHack);
 var
-  LClass: TObjectHack;
+  LClass: TRfObjectHack;
 begin
   for LClass in Classes do
-    if LClass.GetClassVars = nil then
-      LClass.SetClassVars(TClassVars.Create)
+    if LClass.GetRfClassController = nil then
+      LClass.SetRfClassController(TRfClassController.Create)
     else
       raise Exception.CreateFmt('Class %s has automated section or duplicated registration.', [LClass.ClassName]);
 end;
@@ -444,54 +445,43 @@ end;
 type
   TExecute = procedure of object;
 
-procedure TObjectHack.CallOldFunction;
+procedure TRfObjectHack.CallOldFunction;
 var
   Routine: TMethod;
   Execute: TExecute;
 begin
   Routine.Data := Pointer(Self);
-  Routine.Code := GetClassVars.OldVMTFreeInstance;
+  Routine.Code := GetRfClassController.OldVMTFreeInstance;
   Execute := TExecute(Routine);
   Execute;
 end;
 
-constructor TObjectHack.Create;
-begin
-
-end;
-
-procedure TObjectHack.DecCounter;
+procedure TRfObjectHack.DecCounter;
 begin
   {$IFDEF TRACEINSTACESALLOCATION}
-  GetClassVars.AllocationMap.DecCounter(AllocationAddress);
+  GetRfClassController.AllocationMap.DecCounter(AllocationAddress);
   {$ENDIF}
 
-  GetClassVars.BaseInstanceCount := GetClassVars.BaseInstanceCount - 1;
+  GetRfClassController.BaseInstanceCount := GetRfClassController.BaseInstanceCount - 1;
   CallOldFunction;
 end;
 
-destructor TObjectHack.Destroy;
-begin
-
-  inherited;
-end;
-
-function TObjectHack.GetAllocationAddress: Integer;
+function TRfObjectHack.GetAllocationAddress: Integer;
 begin
   Result := PInteger(Integer(Self) + Self.InstanceSize)^;
 end;
 
-class function TObjectHack.GetClassVars: TClassVars;
+class function TRfObjectHack.GetRfClassController: TRfClassController;
 begin
-  Result := PClassVars(Integer(Self) + vmtAutoTable)^;
+  Result := PRfClassController(Integer(Self) + vmtAutoTable)^;
 end;
 
-procedure TObjectHack.SetAllocationAddress(const Value: Integer);
+procedure TRfObjectHack.SetAllocationAddress(const Value: Integer);
 begin
   PInteger(Integer(Self) + Self.InstanceSize)^ := Value;
 end;
 
-class procedure TObjectHack.SetClassVars(AClassVars: TClassVars);
+class procedure TRfObjectHack.SetRfClassController(AClassVars: TRfClassController);
 begin
   AClassVars.BaseClassName := Self.ClassName;
   AClassVars.BaseInstanceSize := Self.InstanceSize;
@@ -501,52 +491,52 @@ begin
     AClassVars.BaseParentClassName := Self.ClassParent.ClassName;
 
   PatchCodeDWORD(PDWORD(Integer(Self) + vmtAutoTable), DWORD(AClassVars));
-  _InitializeHook(Self, vmtFreeInstance, @TObjectHack.DecCounter);
+  _InitializeHook(Self, vmtFreeInstance, @TRfObjectHack.DecCounter);
 end;
 
-procedure TObjectHack.NFreeInstance;
+procedure TRfObjectHack.NFreeInstance;
 begin
   CleanupInstance;
   SDefaultFreeMem(Self);
 end;
 
-class function TObjectHack.NNewInstance: TObject;
+class function TRfObjectHack.NNewInstance: TObject;
 begin
   Result := InitInstance(SDefaultGetMem(Self.InstanceSize));
 end;
 
-class function TObjectHack.NNewInstanceTrace: TObject;
+class function TRfObjectHack.NNewInstanceTrace: TObject;
 begin
   try
     Result := InitInstance(SDefaultGetMem(Self.InstanceSize {$IFDEF TRACEINSTACESALLOCATION} + SIZE_OF_INT {$ENDIF}));
-    if (Result.ClassType = TClassVars)
+    if (Result.ClassType = TRfClassController)
         or (Result.ClassType = TAllocationMap)
         or (Result.ClassType = TMemoryAddressBuffer)
         or (Result.ClassType = TCriticalSectionIgnore) or (Result is EExternal) then
       Exit;
 
     {$IFDEF TRACEINSTACESALLOCATION}
-    TObjectHack(Result).AllocationAddress := GetSectorIdentificator;
+    TRfObjectHack(Result).AllocationAddress := GetSectorIdentificator;
     {$ENDIF}
-    TObjectHack(Result).IncCounter;
+    TRfObjectHack(Result).IncCounter;
   except
     raise Exception.Create(Result.ClassName);
   end;
 end;
 
-procedure TObjectHack.IncCounter;
+procedure TRfObjectHack.IncCounter;
 begin
-  if GetClassVars = nil then
+  if GetRfClassController = nil then
     RegisterClassVarsSupport(Self);
 
-  GetClassVars.BaseInstanceCount := GetClassVars.BaseInstanceCount + 1;
+  GetRfClassController.BaseInstanceCount := GetRfClassController.BaseInstanceCount + 1;
   {$IFDEF TRACEINSTACESALLOCATION}
-  GetClassVars.AllocationMap.IncCounter(AllocationAddress);
+  GetRfClassController.AllocationMap.IncCounter(AllocationAddress);
   {$ENDIF}
 end;
 
 { TClassVars }
-constructor TClassVars.Create;
+constructor TRfClassController.Create;
 begin
   SListClassVars.Add(Self);
   {$IFDEF TRACEINSTACESALLOCATION}
@@ -839,7 +829,7 @@ begin
   SetMemoryManager(LMemoryManager);
 end;
 
-destructor TClassVars.Destroy;
+destructor TRfClassController.Destroy;
 begin
   {$IFDEF TRACEINSTACESALLOCATION}
   AllocationMap.Free;
@@ -947,6 +937,11 @@ begin
   Result := BinarySearch(LMemoryAddress);
 end;
 
+function TAllocationMap.GetAllocationCounterByCallerAddr(ACallerAddr: Cardinal): TMemoryAddress;
+begin
+  Result := Items[BinarySearch(ACallerAddr)];
+end;
+
 function TAllocationMap.GetItems(Index: Integer): TMemoryAddress;
 begin
   Result := FItems[Index];
@@ -1049,7 +1044,7 @@ begin
 
   ///Class wrapper
   {$IFDEF TRACEINSTANCES}
-  AddressPatch(GetMethodAddress(@OldNewInstance), @TObjectHack.NNewInstanceTrace);
+  AddressPatch(GetMethodAddress(@OldNewInstance), @TRfObjectHack.NNewInstanceTrace);
   {$ENDIF}
 end;
 

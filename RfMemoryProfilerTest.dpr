@@ -12,6 +12,7 @@ program RfMemoryProfilerTest;
 uses
   uRfMemoryProfiler in 'uRfMemoryProfiler.pas',
   Forms,
+  SysUtils,
   TestFramework,
   GUITestRunner,
   TextTestRunner,
@@ -19,13 +20,18 @@ uses
   uUnitTestHeader in 'uUnitTestHeader.pas';
 
 {$R *.RES}
-
 begin
   Application.Initialize;
-  if IsConsole then
-    with TextTestRunner.RunRegisteredTests do
-      Free
-  else
-    GUITestRunner.RunRegisteredTests;
+
+  try
+    if IsConsole then
+      with TextTestRunner.RunRegisteredTests do
+        Free
+    else
+      GUITestRunner.RunRegisteredTests;
+  except
+    on E: exception do
+      ShowException(Application, E);
+  end;
 end.
 

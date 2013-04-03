@@ -6,6 +6,7 @@ uses
   TestFramework, uRfMemoryProfiler, SyncObjs, Classes, Contnrs, uUnitTestHeader, Diagnostics, Windows;
 
 type
+  {$Include RfMemoryProfilerOptions.inc}
   // Test methods for class TAllocationMap
 
   TObjectTest = class(TObject);
@@ -16,7 +17,7 @@ type
     procedure TearDown; override;
   published
     procedure TestObjectCounter;
-    {$IFDEF TRACEINSTACESALLOCATION}
+    {$IFDEF INSTANCES_TRACKER}
     procedure TestTraceObjectAllocation;
     {$ENDIF}
 
@@ -100,7 +101,7 @@ begin
   LObjectList.Free;
 end;
 
-{$IFDEF TRACEINSTACESALLOCATION}
+{$IFDEF INSTANCES_TRACKER}
 procedure TestRfMemoryProfiller.TestTraceObjectAllocation;
 var
   LStack: Integer;
@@ -240,6 +241,7 @@ begin
   begin
     LPointer := FBufferList.Items[I];
     ReallocMem(LPointer, BUFFER_TEST_REALOC_SIZE);
+    FBufferList.Items[I] := LPointer;
   end;
 
   CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = 0, 'Wrong counter of buffer on base pointer on reallocation.');

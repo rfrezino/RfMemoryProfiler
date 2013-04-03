@@ -1,6 +1,7 @@
 unit uUnitTestHeader;
 
 interface
+  {$Include RfMemoryProfilerOptions.inc}
 
 uses
   Classes;
@@ -13,7 +14,7 @@ const
 
   SIZE_OF_INT = SizeOf(Integer);
   PARITY_BYTE = 7777777;
-  GAP_SIZE = SizeOf(PARITY_BYTE) + SIZE_OF_INT {$IFDEF TRACEBUFFERALLOCATION} + SIZE_OF_INT {$ENDIF};
+  GAP_SIZE = SizeOf(PARITY_BYTE) + SIZE_OF_INT {$IFDEF INSTANCES_TRACKER} + SIZE_OF_INT {$ENDIF};
 
 type
   Address = integer;

@@ -4,7 +4,7 @@ Objective: Count how much memory buffer with determined size is all allocated by
 Buffer Size | Amount of Allocs | Total Memory Used
 ----------------------------------------------------
 	325		|		35265	   | 	11461125
-	23 		|    32		   |     736
+	23 		|        32		   |     736
 	...		|		...		   |	...
 
 

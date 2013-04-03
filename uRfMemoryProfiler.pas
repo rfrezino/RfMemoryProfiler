@@ -102,11 +102,22 @@ type
     {$ENDIF}
   end;
 
+  TMemoryAddressBuffer = class
+    AllocationAddr: Integer;
+    NumAllocations: Integer;
+    Next: TMemoryAddressBuffer;
+  end;
+
+  TArrayOfMapAddress = array [0..SIZE_OF_MAP] of TMemoryAddressBuffer;
+
   procedure RegisterRfClassController(const Classes: array of TRfObjectHack);
+
+  function GetAmountOfBufferAllocations(ACallerAddr: Cardinal; ABufferSize: Cardinal): Integer;
 
 var
   RfMapOfBufferAllocation: TArrayOfMap;
   RfIsMemoryProfilerActive: Boolean;
+  SMapofBufferAddressAllocation: TArrayOfMapAddress;
 
 implementation
 
@@ -120,21 +131,11 @@ const
   /// Delphi linker starts the code section at this fixed offset
   CODE_SECTION = $1000;
 
-type
-  TMemoryAddressBuffer = class
-    AllocationAddr: Integer;
-    NumAllocations: Integer;
-    Next: TMemoryAddressBuffer;
-  end;
-
-  TArrayOfMapAddress = array [0..SIZE_OF_MAP] of TMemoryAddressBuffer;
-
 var
   {Flag to say if the memory watcher is on or off}
   SIsNamedBufferMapActive: Boolean;
   SIsObjectAllocantionTraceOn: Boolean;
   SIsBufferAllocationTraceOn: Boolean;
-  SMapofBufferAddressAllocation: TArrayOfMapAddress;
 
 type
   TThreadMemory = array [0..SIZE_OF_MAP] of Integer;
@@ -145,8 +146,8 @@ type
     Distance: Pointer;
   end;
 
-  PMappedRecord = ^MappedRecord;
-  MappedRecord = packed record
+  PMappedRecord = ^TMappedRecord;
+  TMappedRecord = packed record
     Parity: Integer;
     SizeCounterAddr: Integer;
 
@@ -311,6 +312,8 @@ begin
     mov LStack, eax
   end;
   Result := 0;
+  if LStack^.CallerFrame > MIN_FRAME then
+    LStack := PStackFrame(LStack^.CallerFrame);
   if LStack^.CallerFrame > MIN_FRAME then
     LStack := PStackFrame(LStack^.CallerFrame);
   if LStack^.CallerFrame > MIN_FRAME then
@@ -602,6 +605,38 @@ begin
   Result := (APos - Integer(@RfMapOfBufferAllocation)) div SIZE_OF_INT;
 end;
 
+function GetAmountOfBufferAllocations(ACallerAddr: Cardinal; ABufferSize: Cardinal): Integer;
+var
+  LMemoryBufferAddress: TMemoryAddressBuffer;
+  LLastMemoryBufferAddress: TMemoryAddressBuffer;
+begin
+  if SMapofBufferAddressAllocation[ABufferSize] = nil then
+  begin
+    Result := 0;
+    Exit;
+  end;
+
+  LLastMemoryBufferAddress := SMapofBufferAddressAllocation[ABufferSize];
+  LMemoryBufferAddress := LLastMemoryBufferAddress;
+
+  while (LMemoryBufferAddress <> nil) do
+  begin
+    {$IFDEF BUFFER_TRACKER}
+    if LMemoryBufferAddress.AllocationAddr <> ACallerAddr then
+    begin
+      LLastMemoryBufferAddress := LMemoryBufferAddress;
+      LMemoryBufferAddress := LMemoryBufferAddress.Next;
+      Continue;
+    end;
+    {$ENDIF}
+
+    Result := LMemoryBufferAddress.NumAllocations;
+    Exit;
+  end;
+
+  Result := 0;
+end;
+
 procedure MemoryBufferCounter(ABufSize: Integer; AInitialPointer: PMappedRecord; AValue: Integer);
 var
   LMemoryBufferAddress: TMemoryAddressBuffer;
@@ -646,7 +681,7 @@ begin
     {$IFDEF BUFFER_TRACKER}
     LMemoryBufferAddress.AllocationAddr := AInitialPointer.AllocationAddr;
     {$ENDIF}
-    LMemoryBufferAddress.NumAllocations := AValue;
+    LMemoryBufferAddress.NumAllocations := LMemoryBufferAddress.NumAllocations + AValue;
 
     LLastMemoryBufferAddress.Next := LMemoryBufferAddress;
   finally
@@ -768,14 +803,15 @@ begin
 
   LMappedRecord^.ClearParityByte;
   LMappedRecord^.DecMapSizeCounter;
+  LMappedRecord^.DecAllocationMap;
 
   Result := SDefaultReallocMem(LMappedRecord, Size + GAP_SIZE);
 
   LMappedRecord := Result;
   LMappedRecord^.SetParityByte;
-
   LMappedRecord^.SizeCounterAddr := Integer(@RfMapOfBufferAllocation[LSizeMap]);
   LMappedRecord^.IncMapSizeCounter;
+  LMappedRecord^.IncAllocationMap;
 
   Result := Pointer(Integer(LMappedRecord) + GAP_SIZE);
 end;
@@ -827,13 +863,13 @@ end;
 { MappedRecord }
 
 {$IFDEF BUFFER_TRACKER}
-procedure MappedRecord.DecAllocationMap;
+procedure TMappedRecord.DecAllocationMap;
 begin
   MemoryBufferCounter(MemorySizeOfPos(SizeCounterAddr), PMappedRecord(@Self), -1);
 end;
 {$ENDIF}
 
-procedure MappedRecord.DecMapSizeCounter;
+procedure TMappedRecord.DecMapSizeCounter;
 begin
   SRCBufferCounter.Acquire;
   try
@@ -844,13 +880,13 @@ begin
 end;
 
 {$IFDEF BUFFER_TRACKER}
-procedure MappedRecord.IncAllocationMap;
+procedure TMappedRecord.IncAllocationMap;
 begin
   MemoryBufferCounter(MemorySizeOfPos(SizeCounterAddr), PMappedRecord(@Self), +1);
 end;
 {$ENDIF}
 
-procedure MappedRecord.IncMapSizeCounter;
+procedure TMappedRecord.IncMapSizeCounter;
 begin
   SRCBufferCounter.Acquire;
   try
@@ -860,17 +896,17 @@ begin
   end;
 end;
 
-procedure MappedRecord.SetParityByte;
+procedure TMappedRecord.SetParityByte;
 begin
   Parity := PARITY_BYTE;
 end;
 
-function MappedRecord.Size: Integer;
+function TMappedRecord.Size: Integer;
 begin
   Result := (Self.SizeCounterAddr - Integer(@RfMapOfBufferAllocation)) div SIZE_OF_INT;
 end;
 
-procedure MappedRecord.ClearParityByte;
+procedure TMappedRecord.ClearParityByte;
 begin
   Parity := 0;
 end;

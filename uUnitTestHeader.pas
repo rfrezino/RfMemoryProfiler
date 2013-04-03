@@ -19,6 +19,13 @@ const
 type
   Address = integer;
 
+  PMappedRecord = ^TMappedRecord;
+    TMappedRecord = packed record
+    Parity: Integer;
+    SizeCounterAddr: Integer;
+    AllocationAddr: Integer;
+  end;
+
   procedure RfInitilializeAllocDeallocArrays;
   function IsSameValuesInAllocAndDeallocArray: Boolean;
   procedure SetAllocationAddress(APointer: Pointer);

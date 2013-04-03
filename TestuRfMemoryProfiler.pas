@@ -6,6 +6,9 @@ uses
   TestFramework, uRfMemoryProfiler, SyncObjs, Classes, Contnrs, uUnitTestHeader, Diagnostics, Windows;
 
 type
+  {$DEFINE BUFFER_TRACKER}
+  {$DEFINE INSTANCES_TRACKER}
+
   {$Include RfMemoryProfilerOptions.inc}
   // Test methods for class TAllocationMap
 
@@ -45,6 +48,9 @@ type
     procedure TestBasicFunctionsAllocFree;
     procedure TestBasicFunctionsGetMemFree;
     procedure TestRealloc;
+    {$IFDEF BUFFER_TRACKER}
+    procedure TestTracker;
+    {$ENDIF}
   end;
 
 implementation
@@ -344,6 +350,40 @@ procedure TestBufferAllocation.TestRealloc;
 begin
   TestBufferAllocMemCounter;
   TestBufferReallocMemCounter;
+end;
+
+procedure TestBufferAllocation.TestTracker;
+var
+  I: Integer;
+  LStack: Cardinal;
+  LPointer: Pointer;
+  LMemoryItem: TMappedRecord;
+begin
+  {Get the addr of this procedure}
+  asm
+    mov LStack, ebp
+  end;
+  LStack := PInteger(Integer(LStack) + 4)^;
+  Dec(LStack, UGetModuleHandle);
+
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = 0, 'Wrong buffer trace test initialization. The buffer counter allocation must start in 0.');
+  CheckTrue(GetAmountOfBufferAllocations(LStack, BUFFER_TEST_SIZE) = 0, 'Wrong buffer trace test initialization. The buffer addr allocation counter allocation must start in 0.');
+
+  for I := 0 to AMOUNT_OF_ALLOCATIONS - 1 do
+    FBufferList.Add(GetMemory(BUFFER_TEST_SIZE));
+
+  LMemoryItem := TMappedRecord(Pointer(Integer(FBufferList.Items[0]) - GAP_SIZE)^);
+  CheckTrue(LMemoryItem.AllocationAddr = LStack, 'Wrong caller addr for buffer allocation');
+
+  CheckTrue(GetAmountOfBufferAllocations(LStack, BUFFER_TEST_SIZE) = AMOUNT_OF_ALLOCATIONS, 'The number of buffer allocations for addr is wrong');
+
+  for I := 0 to AMOUNT_OF_ALLOCATIONS - 1 do
+  begin
+    LPointer := FBufferList.Items[I];
+    Dispose(LPointer);
+  end;
+  CheckTrue(RfMapOfBufferAllocation[BUFFER_TEST_SIZE] = 0, 'Wrong count of buffer deallocation to AllocMem.');
+  CheckTrue(GetAmountOfBufferAllocations(LStack, BUFFER_TEST_SIZE) = 0, 'The number of buffer deallocations for addr is wrong');
 end;
 
 initialization

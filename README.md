@@ -1,30 +1,5 @@
 RfMemoryProfiler
 ================
-{Versão 0.1
-  - Added: recurso para contar quantidade de objetos no sistema.
-  - Added: Possibilidade de gerar relatório (SaveMemoryProfileToFile)
-}
-
-{
-- Funcionalidade: Esse recurso foi desenvolvido para para monitorar objetos e buffers alocados em sua aplicação. A intenção com
-  a visibilidade dessa informação é o auxilio para encontrar enventuais leaks de memória da maneira menos intrusiva possível em
-  tempo real, de forma que a mesma possa estar disponível em versões release sem comprometer a velocidade do sistema.
-
-- Como instalar: Adicione essa unit no projeto e adicione como a primeira uses do sistema (Project - View Source - uses). Se você
- utiliza algum gerenciador de memória de terceiro, coloque o uses do uRfMemoryProfiler logo após a uses deste.
-
-- Como obter o relatório: O visualizardor não ainda não foi desenvolvido, por hora, é possível solicitar a informação de relatório
- através do comando SaveMemoryProfileToFile. Um arquivo de texto chamado RfMemoryReport será criado no caminho do executável.
-
- ***** PERIGO: Se você usa o espaço da VMT destinado ao vmtAutoTable, não é possível utilizar os recursos dessa unit *****
-
- Desenvolvido por Rodrigo Farias Rezino
- E-mail: rodrigofrezino@gmail.com
- Stackoverflow: http://stackoverflow.com/users/225010/saci
- Qualquer bug, por favor me informar.
-}
-
-{
 - Functionality: The feature developed in this unit to watch how the memory are being allocated by your system. The main
     focus of it is help to find memory leak in the most non intrusive way on a real time mode.
 
@@ -62,4 +37,4 @@ Develop by  Rodrigo Farias Rezino
     E-mail: rodrigofrezino@gmail.com
     Stackoverflow: http://stackoverflow.com/users/225010/saci
      Please, any bug let me know
-}
+

@@ -5,7 +5,6 @@ interface
 uses
   TestFramework, uRfMemoryProfiler, SyncObjs, Classes, Contnrs, uUnitTestHeader, Diagnostics, Windows;
 
-{$DEFINE TRACEINSTACESALLOCATION}
 type
   // Test methods for class TAllocationMap
 
@@ -109,6 +108,7 @@ var
   LAllocationMap: TAllocationMap;
   I: Integer;
   LObjectList: TObjectList;
+  II: Integer;
 begin
   {Get the addr of this procedure}
   asm
@@ -117,18 +117,20 @@ begin
   LStack := PInteger(Integer(LStack) + 4)^;
   Dec(LStack, UGetModuleHandle);
 
-  LObjectList := TObjectList.Create;
-
-  for I := 0 to AMOUNT_OF_ALLOCATIONS -1 do
+  for II := 0 to 50 do
   begin
-    LObjectTest := TRfObjectHack(TObject.Create);
-    LAllocationMap := LObjectTest.GetRfClassController.AllocationMap;
+    LObjectList := TObjectList.Create;
+    for I := 0 to AMOUNT_OF_ALLOCATIONS -1 do
+    begin
+      LObjectTest := TRfObjectHack(TPersistent.Create);
+      LAllocationMap := LObjectTest.GetRfClassController.AllocationMap;
 
-    LObjectList.Add(LObjectTest);
-    CheckTrue(LObjectTest.AllocationAddress = LStack, 'Allocation address do not correspond to actual caller.');
-    CheckTrue(LAllocationMap.GetAllocationCounterByCallerAddr(LStack).NumAllocations = LObjectList.Count, 'Object allocation counter is not working.');
+      LObjectList.Add(LObjectTest);
+      CheckTrue(LObjectTest.AllocationAddress = LStack, 'Allocation address do not correspond to actual caller.');
+      CheckTrue(LAllocationMap.GetAllocationCounterByCallerAddr(LStack).NumAllocations = LObjectList.Count, 'Object allocation counter is not working.');
+    end;
+    LObjectList.Free;
   end;
-//  LObjectList.Free;
   CheckTrue(LAllocationMap.GetAllocationCounterByCallerAddr(LStack).NumAllocations = 0, 'Object deallocation counter is not working.');
 end;
 {$ENDIF}

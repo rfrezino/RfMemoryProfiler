@@ -1,84 +1,7 @@
 unit uRfMemoryProfiler;
 
-{Versão 0.2
-  - Added: recurso para identificar quantidade de buffers e seus tamanhados alocados no sistema
-  - Changed: Adicionado mais informações no relatório (SaveMemoryProfileToFile)
-}
-
-{Versão 0.1
-  - Added: recurso para contar quantidade de objetos no sistema.
-  - Added: Possibilidade de gerar relatório (SaveMemoryProfileToFile)
-}
-
-{
-- Funcionalidade: Esse recurso foi desenvolvido para para monitorar objetos e buffers alocados em sua aplicação. A intenção com
-  a visibilidade dessa informação é o auxilio para encontrar enventuais leaks de memória da maneira menos intrusiva possível em
-  tempo real, de forma que a mesma possa estar disponível em versões release sem comprometer a velocidade do sistema.
-
-- Como instalar: Adicione essa unit no projeto e adicione como a primeira uses do sistema (Project - View Source - uses). Se você
- utiliza algum gerenciador de memória de terceiro, coloque o uses do uRfMemoryProfiler logo após a uses deste.
-
-- Como obter o relatório: O visualizardor não ainda não foi desenvolvido, por hora, é possível solicitar a informação de relatório
- através do comando SaveMemoryProfileToFile. Um arquivo de texto chamado RfMemoryReport será criado no caminho do executável.
-
- ***** PERIGO: Se você usa o espaço da VMT destinado ao vmtAutoTable, não é possível utilizar os recursos dessa unit *****
-
- Desenvolvido por Rodrigo Farias Rezino
- E-mail: rodrigofrezino@gmail.com
- Stackoverflow: http://stackoverflow.com/users/225010/saci
- Qualquer bug, por favor me informar.
-}
-
-{
-- Functionality: The feature developed in this unit to watch how the memory are being allocated by your system. The main
-    focus of it is help to find memory leak in the most non intrusive way on a real time mode.
-
-- How to Install: Put this unit as the first unit of yout project. If use use a third memory manager put this unit just after the
-    unit of your memory manager.
-
-- How to get it's report: It's not the final version of this unit, so the viewer was not developed. By the moment you can call
-  the method SaveMemoryProfileToFile. It'll create a text file called RfMemoryReport in the executable path.
-
- ***** WARNING: If you use the space of the VMT destinated to vmtAutoTable, you should not use the directive TRACEINSTANCES *****
-
-How it works:
-The feature work in two different approaches:
-1) Map the memory usage by objects
-2) Map the memory usage by buffers (Records, strings and so on)
-3) Map the memory usage by objects / Identify the method that called the object creation
-4) Map the memory usage by buffers (Records, strings and so on) / Identify the method that called the buffer allocation
-
-How are Objects tracked ?
-  The TObject.NewInstance was replaced by a new method (TObjectHack.NNewInstanceTrace).
-  So when the creation of an object is called it's redirect to the new method. In this new method is increased the counter of the relative class and change the method in the VMT that is responsible to free the object to a new destructor method (vmtFreeInstance). This new destructor call the decrease of the counter and the old destructor.
-  This way I can know how much of objects of each class are alive in the system.
-
-  (More details about how it deep work can be found in the comments on the code)
-
-How are Memory Buffer tracked ?
-  The GetMem, FreeMem, ReallocMem, AllocMem were replaced by new method that have an special behavior to help track the buffers.
-
-   As the memory allocation use the same method to every kind of memory request, I'm not able to create a single counter to each count of buffer. So, I calculate them base on it size. First I create a array of integer that start on 0 and goes to 65365.
-  When the system ask me to give it a buffer of 65 bytes, I increase the position 65 of the array and the buffer is deallocated I call the decrease of the position of the array corresponding to buffer size. If the size requested to the buffer is bigger or equal to 65365, I'll use the position 65365 of the array.
-
-  (More details about how it deep work can be found in the comments on the code)
-
-Develop by  Rodrigo Farias Rezino
-    E-mail: rodrigofrezino@gmail.com
-    Stackoverflow: http://stackoverflow.com/users/225010/saci
-     Please, any bug let me know
-}
-
 interface
-{$DEFINE TRACEINSTANCES}            {Directive used to track objects allocation}
-{$DEFINE TRACEBUFFER}               {Directive used to track buffer}
-
-{$DEFINE TRACEINSTACESALLOCATION} {Must have the TRACEINSTANCES directive ON to work}
-
-//This itens above are not all tested
-{$IFDEF NONCONCLUDEDITEMS}
-  {$DEFINE TRACEBUFFERALLOCATION}     {Must have the TRACEBUFFERALLOCATION directive ON to work}
-{$ENDIF}
+{$Include RfMemoryProfilerOptions.inc}
 
 uses
   Classes, SyncObjs {$IFDEF UNITTEST}, uUnitTestHeader {$ENDIF};
@@ -107,8 +30,8 @@ const
 type
   TArrayOfMap = array [0..SIZE_OF_MAP] of Integer;
 
-  PMemoryAddress = ^TMemoryAddress;
-  TMemoryAddress = record
+  PCallerAllocator = ^TCallerAllocator;
+  TCallerAllocator = record
     MemAddress: Integer;
     NumAllocations: Integer;
   end;
@@ -118,27 +41,27 @@ type
   TAllocationMap = class
   strict private
     FCriticalSection: TCriticalSectionIgnore;
-    FItems: array of TMemoryAddress;
+    FItems: array of TCallerAllocator;
 
-    function BinarySearch(const LMemoryAddress: Cardinal): Integer;
-    function FindOrAdd(const LMemoryAddress: Integer): Integer;
+    function BinarySearch(const ACallerAddr: Cardinal): Integer;
+    function FindOrAdd(const ACallerAddr: Integer): Integer;
 
     procedure QuickSortInternal(ALow, AHigh: Integer);
     procedure QuickSort;
   private
-    function GetItems(Index: Integer): TMemoryAddress;
+    function GetItems(Index: Integer): TCallerAllocator;
   public
     constructor Create;
     destructor Destroy; override;
 
-    procedure IncCounter(LMemoryAddress: Integer);
-    procedure DecCounter(LMemoryAddress: Integer);
+    procedure IncCounter(ACallerAddr: Integer);
+    procedure DecCounter(ACallerAddr: Integer);
 
-    function GetAllocationCounterByCallerAddr(ACallerAddr: Cardinal): TMemoryAddress;
+    function GetAllocationCounterByCallerAddr(ACallerAddr: Cardinal): TCallerAllocator;
 
     function Count: Integer;
 
-    property Items[Index: Integer]: TMemoryAddress read GetItems;
+    property Items[Index: Integer]: TCallerAllocator read GetItems;
   end;
 
   PRfClassController = ^TRfClassController;
@@ -159,7 +82,7 @@ type
 
   TRfObjectHack = class(TObject)
   private
-    class procedure SetRfClassController(AClassVars: TRfClassController); //inline;
+    class procedure SetRfClassController(ARfClassController: TRfClassController); //inline;
 
     procedure IncCounter; inline;
     procedure DecCounter; inline;
@@ -174,12 +97,12 @@ type
   public
     class function GetRfClassController: TRfClassController; inline;
 
-    {$IFDEF TRACEINSTACESALLOCATION}
+    {$IFDEF INSTANCES_TRACKER}
     property AllocationAddress: Integer read GetAllocationAddress write SetAllocationAddress;
     {$ENDIF}
   end;
 
-  procedure RegisterClassVarsSupport(const Classes: array of TRfObjectHack);
+  procedure RegisterRfClassController(const Classes: array of TRfObjectHack);
 
 var
   RfMapOfBufferAllocation: TArrayOfMap;
@@ -193,7 +116,7 @@ uses
 const
   SIZE_OF_INT = SizeOf(Integer);
   PARITY_BYTE = 7777777;
-  GAP_SIZE = SizeOf(PARITY_BYTE) + SIZE_OF_INT {$IFDEF TRACEBUFFERALLOCATION} + SIZE_OF_INT {$ENDIF};
+  GAP_SIZE = SizeOf(PARITY_BYTE) + SIZE_OF_INT {$IFDEF BUFFER_TRACKER} + SIZE_OF_INT {$ENDIF};
   /// Delphi linker starts the code section at this fixed offset
   CODE_SECTION = $1000;
 
@@ -227,13 +150,13 @@ type
     Parity: Integer;
     SizeCounterAddr: Integer;
 
-    {$IFDEF TRACEBUFFERALLOCATION}
+    {$IFDEF BUFFER_TRACKER}
     AllocationAddr: Integer;
     {$ENDIF}
 
     procedure SetParityByte; inline;
     procedure IncMapSizeCounter; inline;
-    {$IFDEF TRACEBUFFERALLOCATION}
+    {$IFDEF BUFFER_TRACKER}
     procedure IncAllocationMap; inline;
     {$ENDIF}
 
@@ -241,7 +164,7 @@ type
     procedure DecMapSizeCounter; inline;
 
     function Size: Integer; inline;
-    {$IFDEF TRACEBUFFERALLOCATION}
+    {$IFDEF BUFFER_TRACKER}
     procedure DecAllocationMap; inline;
     {$ENDIF}
   end;
@@ -331,7 +254,7 @@ begin
   LStringList := TStringList.Create;
   try
     LStringList.Add('CLASS | INSTANCE SIZE | NUMBER OF INSTANCES | TOTAL');
-    {$IFDEF TRACEINSTANCES}
+    {$IFDEF INSTANCES_COUNTER}
     for i := 0 to SListClassVars.Count -1 do
     begin
       LClassVar := TRfClassController(SListClassVars.Items[I]);
@@ -343,7 +266,7 @@ begin
     end;
     {$ENDIF}
 
-    {$IFDEF TRACEBUFFER}
+    {$IFDEF BUFFER_COUNTER}
     for I := 0 to SIZE_OF_MAP do
       if RfMapOfBufferAllocation[I] > 0 then
         LStringList.Add(Format('Buffer | %d bytes | %d | %d bytes', [I, RfMapOfBufferAllocation[I], RfMapOfBufferAllocation[I] * I]));
@@ -415,7 +338,7 @@ begin
   Result := VirtualProtect(lAddress, SIZE_OF_INT, lProtect, @lProtect);
 end;
 
-procedure RegisterClassVarsSupport(const Classes: array of TRfObjectHack);
+procedure RegisterRfClassController(const Classes: array of TRfObjectHack);
 var
   LClass: TRfObjectHack;
 begin
@@ -458,7 +381,7 @@ end;
 
 procedure TRfObjectHack.DecCounter;
 begin
-  {$IFDEF TRACEINSTACESALLOCATION}
+  {$IFDEF INSTANCES_TRACKER}
   GetRfClassController.AllocationMap.DecCounter(AllocationAddress);
   {$ENDIF}
 
@@ -481,16 +404,16 @@ begin
   PInteger(Integer(Self) + Self.InstanceSize)^ := Value;
 end;
 
-class procedure TRfObjectHack.SetRfClassController(AClassVars: TRfClassController);
+class procedure TRfObjectHack.SetRfClassController(ARfClassController: TRfClassController);
 begin
-  AClassVars.BaseClassName := Self.ClassName;
-  AClassVars.BaseInstanceSize := Self.InstanceSize;
-  AClassVars.OldVMTFreeInstance := PPointer(Integer(TClass(Self)) + vmtFreeInstance)^;
+  ARfClassController.BaseClassName := Self.ClassName;
+  ARfClassController.BaseInstanceSize := Self.InstanceSize;
+  ARfClassController.OldVMTFreeInstance := PPointer(Integer(TClass(Self)) + vmtFreeInstance)^;
 
   if Self.ClassParent <> nil then
-    AClassVars.BaseParentClassName := Self.ClassParent.ClassName;
+    ARfClassController.BaseParentClassName := Self.ClassParent.ClassName;
 
-  PatchCodeDWORD(PDWORD(Integer(Self) + vmtAutoTable), DWORD(AClassVars));
+  PatchCodeDWORD(PDWORD(Integer(Self) + vmtAutoTable), DWORD(ARfClassController));
   _InitializeHook(Self, vmtFreeInstance, @TRfObjectHack.DecCounter);
 end;
 
@@ -507,30 +430,30 @@ end;
 
 class function TRfObjectHack.NNewInstanceTrace: TObject;
 begin
-  try
-    Result := InitInstance(SDefaultGetMem(Self.InstanceSize {$IFDEF TRACEINSTACESALLOCATION} + SIZE_OF_INT {$ENDIF}));
-    if (Result.ClassType = TRfClassController)
-        or (Result.ClassType = TAllocationMap)
-        or (Result.ClassType = TMemoryAddressBuffer)
-        or (Result.ClassType = TCriticalSectionIgnore) or (Result is EExternal) then
-      Exit;
-
-    {$IFDEF TRACEINSTACESALLOCATION}
-    TRfObjectHack(Result).AllocationAddress := GetSectorIdentificator;
-    {$ENDIF}
-    TRfObjectHack(Result).IncCounter;
-  except
-    raise Exception.Create(Result.ClassName);
+  Result := InitInstance(SDefaultGetMem(Self.InstanceSize {$IFDEF INSTANCES_TRACKER} + SIZE_OF_INT {$ENDIF}));
+  if (Result.ClassType = TObject)
+      or (Result.ClassType = TRfClassController)
+      or (Result.ClassType = TAllocationMap)
+      or (Result.ClassType = TMemoryAddressBuffer)
+      or (Result.ClassType = TCriticalSectionIgnore)
+      or (Result is EExternal) then
+  begin
+    Exit;
   end;
+
+  {$IFDEF INSTANCES_TRACKER}
+  TRfObjectHack(Result).AllocationAddress := GetSectorIdentificator;
+  {$ENDIF}
+  TRfObjectHack(Result).IncCounter;
 end;
 
 procedure TRfObjectHack.IncCounter;
 begin
   if GetRfClassController = nil then
-    RegisterClassVarsSupport(Self);
+    RegisterRfClassController(Self);
 
   GetRfClassController.BaseInstanceCount := GetRfClassController.BaseInstanceCount + 1;
-  {$IFDEF TRACEINSTACESALLOCATION}
+  {$IFDEF INSTANCES_TRACKER}
   GetRfClassController.AllocationMap.IncCounter(AllocationAddress);
   {$ENDIF}
 end;
@@ -539,69 +462,132 @@ end;
 constructor TRfClassController.Create;
 begin
   SListClassVars.Add(Self);
-  {$IFDEF TRACEINSTACESALLOCATION}
+  {$IFDEF INSTANCES_TRACKER}
   AllocationMap := TAllocationMap.Create;
   {$ENDIF}
+end;
+
+{ TAllocationMap }
+procedure TAllocationMap.QuickSort;
+begin
+  QuickSortInternal(Low(FItems), High(FItems));
+end;
+
+procedure TAllocationMap.QuickSortInternal(ALow, AHigh: Integer);
+var
+  LLow, LHigh, LPivot, LValue: Integer;
+begin
+  LLow := ALow;
+  LHigh := AHigh;
+  LPivot := FItems[(LLow + LHigh) div 2].MemAddress;
+  repeat
+    while FItems[LLow].MemAddress < LPivot do
+      Inc(LLow);
+    while FItems[LHigh].MemAddress > LPivot do
+      Dec(LHigh);
+    if LLow <= LHigh then
+    begin
+      LValue := FItems[LLow].MemAddress;
+      FItems[LLow].MemAddress := FItems[LHigh].MemAddress;
+      FItems[LHigh].MemAddress := LValue;
+      Inc(LLow);
+      Dec(LHigh);
+    end;
+  until LLow > LHigh;
+  if LHigh > ALow then
+    QuickSortInternal(ALow, LHigh);
+  if LLow < AHigh then
+    QuickSortInternal(LLow, AHigh);
+end;
+
+function TAllocationMap.BinarySearch(const ACallerAddr: Cardinal): Integer;
+var
+  LMinIndex, LMaxIndex: Cardinal;
+  LMedianIndex, LMedianValue: Cardinal;
+begin
+  LMinIndex := Low(FItems);
+  LMaxIndex := Length(FItems);
+  while LMinIndex <= LMaxIndex do
+  begin
+    LMedianIndex := (LMinIndex + LMaxIndex) div 2;
+    LMedianValue := FItems[LMedianIndex].MemAddress;
+    if ACallerAddr < LMedianValue then
+      LMaxIndex := Pred(LMedianIndex)
+    else if ACallerAddr = LMedianValue then
+    begin
+      Result := LMedianIndex;
+      Exit;
+    end
+    else
+      LMinIndex := Succ(LMedianIndex);
+  end;
+  Result := -1;
+end;
+
+function TAllocationMap.Count: Integer;
+begin
+  Result := Length(FItems);
+end;
+
+constructor TAllocationMap.Create;
+begin
+  inherited;
+  SetLength(FItems, 1);
+  FItems[0].MemAddress := 0;
+  FItems[0].NumAllocations := 0;
+  FCriticalSection := TCriticalSectionIgnore.Create;
+end;
+
+procedure TAllocationMap.DecCounter(ACallerAddr: Integer);
+var
+  LItem: PCallerAllocator;
+begin
+  LItem := @FItems[FindOrAdd(ACallerAddr)];
+  LItem^.NumAllocations := LItem^.NumAllocations - 1;
+end;
+
+destructor TAllocationMap.Destroy;
+begin
+  FCriticalSection.Free;
+  inherited;
+end;
+
+function TAllocationMap.FindOrAdd(const ACallerAddr: Integer): Integer;
+begin
+  Result := BinarySearch(ACallerAddr);
+  if Result = -1 then
+  begin
+    FCriticalSection.Acquire;
+    SetLength(FItems, Length(FItems) + 1);
+    FItems[Length(FItems) - 1].MemAddress := ACallerAddr;
+    FItems[Length(FItems) - 1].NumAllocations := 0;
+    QuickSort;
+    FCriticalSection.Release;
+  end;
+  Result := BinarySearch(ACallerAddr);
+end;
+
+function TAllocationMap.GetAllocationCounterByCallerAddr(ACallerAddr: Cardinal): TCallerAllocator;
+begin
+  Result := Items[BinarySearch(ACallerAddr)];
+end;
+
+function TAllocationMap.GetItems(Index: Integer): TCallerAllocator;
+begin
+  Result := FItems[Index];
+end;
+
+procedure TAllocationMap.IncCounter(ACallerAddr: Integer);
+var
+  LItem: PCallerAllocator;
+begin
+  LItem := @FItems[FindOrAdd(ACallerAddr)];
+  LItem^.NumAllocations := LItem^.NumAllocations + 1;
 end;
 
 {$ENDREGION}
 
 {$REGION 'Buffer Control'}
-{$REGION 'Description'}
-//////////////////////////////////////////////////////////////////////////////////////
-{
-------  Memory Allocation Control
-Objective: Count how much memory buffer with determined size is all allocated by the system, exemple:
-
-Buffer Size | Amount of Allocs | Total Memory Used
-----------------------------------------------------
-	325		|		35265	   | 	11461125
-	23 		|    32		   |     736
-	...		|		...		   |	...
-
-
-How I control the memory allocation and deallocation:
-
-	I created an array of integer that goes from 0 to 65365. This array will be used to keep the amount of allocs of the corresponding size.
-	For example, If I call GetMem for a buffer of 523, the Array[523] will increase + 1.
-
-	The GetMem, ReallocMem, AllocMem, the problem is easy to resolve 'cause one of it's parameters is the size of the buffer. So I can use this to increase the position of the array.
-
-	The problem cames with the FreeMem, 'cause the only parameter is the pointer of the buffer. I don't know it's size.
-		- I can't create a list to keep the Pointer and it's size. 'Cause there is SO much allocations, it will be so much expensive to the application keep searching/adding/removing items from this list. And this list must to be protected with critical section etc etc. So no way.
-
-	How I'm trying to solve this problem:
-		Just to remeber I created the array to keep the number off allocations.
-
-		Items:     0							                65365
-		           |................................|
-		Addess:   $X						      	$(65365x SizeOf(Integer))
-
-		When allocators methos are called, for example: GetMem(52);
-		I changed the behavior of it, I will alloc the requested size (52), but I'll add here a size of an integer;
-		So I will have:
-
-		$0 $3  $7  $11                  $64
-		...|...|...|....................|
-
-    In 0..3 bits =  filled with the parity value, used to know what was created or not by the buffer controller
-    In 4..7 bits =  filled with the address of the corresponding space of the array.
-    In 8..11 bits =  filled with the frame code address of the memory requester.
-
-
-    In this case the address position $array(52).
-                    And I add + (SizeOf(Integer)) to the address result of the GetMem, so it will have access just the 52 bytes that
-                    were asked for.
-
-		When the FreeMem are called. What I do is:
-			- Get the pointer asked for deallocation.
-			- Decrease the pointer by the size of the integer
-			- Check if the address of the current pointer is relative to the Array of control address.
-			- If it is, I use the the address and decrease 1 from the Array position
-			- And ask for the FreeMem
-}
-{$ENDREGION}
-
 function IsInMap(AValue: Integer): Boolean; inline;
 begin
   try
@@ -625,7 +611,7 @@ begin
   begin
     SMapofBufferAddressAllocation[ABufSize] := TMemoryAddressBuffer.Create;
     SMapofBufferAddressAllocation[ABufSize].NumAllocations := AValue;
-    {$IFDEF TRACEBUFFERALLOCATION}
+    {$IFDEF BUFFER_TRACKER}
     SMapofBufferAddressAllocation[ABufSize].AllocationAddr := AInitialPointer.AllocationAddr;
     {$ENDIF}
     Exit;
@@ -636,7 +622,7 @@ begin
 
   while (LMemoryBufferAddress <> nil) do
   begin
-    {$IFDEF TRACEBUFFERALLOCATION}
+    {$IFDEF BUFFER_TRACKER}
     if LMemoryBufferAddress.AllocationAddr <> AInitialPointer.AllocationAddr then
     begin
       LLastMemoryBufferAddress := LMemoryBufferAddress;
@@ -657,7 +643,7 @@ begin
   SRCBufferCounter.Acquire;
   try
     LMemoryBufferAddress := TMemoryAddressBuffer.Create;
-    {$IFDEF TRACEBUFFERALLOCATION}
+    {$IFDEF BUFFER_TRACKER}
     LMemoryBufferAddress.AllocationAddr := AInitialPointer.AllocationAddr;
     {$ENDIF}
     LMemoryBufferAddress.NumAllocations := AValue;
@@ -692,7 +678,7 @@ begin
   LMappedRecord^.SizeCounterAddr := Integer(@RfMapOfBufferAllocation[MapSize]);
   LMappedRecord^.IncMapSizeCounter;
 
-  {$IFDEF TRACEBUFFERALLOCATION}
+  {$IFDEF BUFFER_TRACKER}
   LMappedRecord^.AllocationAddr := GetMemAllocIdentificator;
   LMappedRecord^.IncAllocationMap;
   {$ENDIF}
@@ -728,7 +714,7 @@ begin
   LMappedRecord^.SizeCounterAddr := Integer(@RfMapOfBufferAllocation[MapSize]);
   LMappedRecord^.IncMapSizeCounter;
 
-  {$IFDEF TRACEBUFFERALLOCATION}
+  {$IFDEF BUFFER_TRACKER}
   LMappedRecord^.AllocationAddr := GetMemAllocIdentificator;
   LMappedRecord^.IncAllocationMap;
   {$ENDIF}
@@ -749,7 +735,7 @@ begin
   begin
     LMappedRecord^.ClearParityByte;
     LMappedRecord^.DecMapSizeCounter;
-    {$IFDEF TRACEBUFFERALLOCATION}
+    {$IFDEF BUFFER_TRACKER}
     LMappedRecord^.DecAllocationMap;
     {$ENDIF}
 
@@ -811,7 +797,7 @@ begin
   GetMemoryManager(LMemoryManager);
   SDefaultGetMem := LMemoryManager.GetMem;
   SIsNamedBufferMapActive := False;
-  {$IFNDEF TRACEBUFFER}
+  {$IFNDEF BUFFER_COUNTER}
   Exit;
   {$ENDIF}
   SIsNamedBufferMapActive := True;
@@ -831,133 +817,16 @@ end;
 
 destructor TRfClassController.Destroy;
 begin
-  {$IFDEF TRACEINSTACESALLOCATION}
+  {$IFDEF INSTANCES_TRACKER}
   AllocationMap.Free;
+  AllocationMap := nil;
   {$ENDIF}
   inherited;
 end;
 
-{ TAllocationMap }
-procedure TAllocationMap.QuickSort;
-begin
-  QuickSortInternal(Low(FItems), High(FItems));
-end;
-
-procedure TAllocationMap.QuickSortInternal(ALow, AHigh: Integer);
-var
-  LLow, LHigh, LPivot, LValue: Integer;
-begin
-  LLow := ALow;
-  LHigh := AHigh;
-  LPivot := FItems[(LLow + LHigh) div 2].MemAddress;
-  repeat
-    while FItems[LLow].MemAddress < LPivot do
-      Inc(LLow);
-    while FItems[LHigh].MemAddress > LPivot do
-      Dec(LHigh);
-    if LLow <= LHigh then
-    begin
-      LValue := FItems[LLow].MemAddress;
-      FItems[LLow].MemAddress := FItems[LHigh].MemAddress;
-      FItems[LHigh].MemAddress := LValue;
-      Inc(LLow);
-      Dec(LHigh);
-    end;
-  until LLow > LHigh;
-  if LHigh > ALow then
-    QuickSortInternal(ALow, LHigh);
-  if LLow < AHigh then
-    QuickSortInternal(LLow, AHigh);
-end;
-
-function TAllocationMap.BinarySearch(const LMemoryAddress: Cardinal): Integer;
-var
-  LMinIndex, LMaxIndex: Cardinal;
-  LMedianIndex, LMedianValue: Cardinal;
-begin
-  LMinIndex := Low(FItems);
-  LMaxIndex := Length(FItems);
-  while LMinIndex <= LMaxIndex do
-  begin
-    LMedianIndex := (LMinIndex + LMaxIndex) div 2;
-    LMedianValue := FItems[LMedianIndex].MemAddress;
-    if LMemoryAddress < LMedianValue then
-      LMaxIndex := Pred(LMedianIndex)
-    else if LMemoryAddress = LMedianValue then
-    begin
-      Result := LMedianIndex;
-      Exit;
-    end
-    else
-      LMinIndex := Succ(LMedianIndex);
-  end;
-  Result := -1;
-end;
-
-function TAllocationMap.Count: Integer;
-begin
-  Result := Length(FItems);
-end;
-
-constructor TAllocationMap.Create;
-begin
-  inherited;
-  SetLength(FItems, 1);
-  FItems[0].MemAddress := 0;
-  FItems[0].NumAllocations := 0;
-  FCriticalSection := TCriticalSectionIgnore.Create;
-end;
-
-procedure TAllocationMap.DecCounter(LMemoryAddress: Integer);
-var
-  LItem: PMemoryAddress;
-begin
-  LItem := @FItems[FindOrAdd(LMemoryAddress)];
-  LItem.NumAllocations := LItem.NumAllocations - 1;
-end;
-
-destructor TAllocationMap.Destroy;
-begin
-  FCriticalSection.Free;
-  inherited;
-end;
-
-function TAllocationMap.FindOrAdd(const LMemoryAddress: Integer): Integer;
-begin
-  Result := BinarySearch(LMemoryAddress);
-  if Result = -1 then
-  begin
-    FCriticalSection.Acquire;
-    SetLength(FItems, Length(FItems) + 1);
-    FItems[Length(FItems) - 1].MemAddress := LMemoryAddress;
-    FItems[Length(FItems) - 1].NumAllocations := 0;
-    QuickSort;
-    FCriticalSection.Release;
-  end;
-  Result := BinarySearch(LMemoryAddress);
-end;
-
-function TAllocationMap.GetAllocationCounterByCallerAddr(ACallerAddr: Cardinal): TMemoryAddress;
-begin
-  Result := Items[BinarySearch(ACallerAddr)];
-end;
-
-function TAllocationMap.GetItems(Index: Integer): TMemoryAddress;
-begin
-  Result := FItems[Index];
-end;
-
-procedure TAllocationMap.IncCounter(LMemoryAddress: Integer);
-var
-  LItem: PMemoryAddress;
-begin
-  LItem := @FItems[FindOrAdd(LMemoryAddress)];
-  LItem.NumAllocations := LItem.NumAllocations + 1;
-end;
-
 { MappedRecord }
 
-{$IFDEF TRACEBUFFERALLOCATION}
+{$IFDEF BUFFER_TRACKER}
 procedure MappedRecord.DecAllocationMap;
 begin
   MemoryBufferCounter(MemorySizeOfPos(SizeCounterAddr), PMappedRecord(@Self), -1);
@@ -974,7 +843,7 @@ begin
   end;
 end;
 
-{$IFDEF TRACEBUFFERALLOCATION}
+{$IFDEF BUFFER_TRACKER}
 procedure MappedRecord.IncAllocationMap;
 begin
   MemoryBufferCounter(MemorySizeOfPos(SizeCounterAddr), PMappedRecord(@Self), +1);
@@ -1017,33 +886,33 @@ begin
   GetCodeOffset;
 
   SIsObjectAllocantionTraceOn := False;
-  {$IFDEF TRACEINSTACESALLOCATION}
+  {$IFDEF INSTANCES_TRACKER}
   SIsObjectAllocantionTraceOn := True;
   {$ENDIF}
 
   SIsBufferAllocationTraceOn := False;
-  {$IFDEF TRACEBUFFERALLOCATION}
+  {$IFDEF BUFFER_TRACKER}
   SIsBufferAllocationTraceOn := True;
   {$ENDIF}
 
-  {$IFDEF TRACEINSTANCES}
+  {$IFDEF INSTANCES_COUNTER}
   SListClassVars := TList.Create;
   {$ENDIF}
 
-  {$IFDEF TRACEBUFFER}
+  {$IFDEF BUFFER_COUNTER}
   InitializeArray;
   {$ENDIF}
 
   ApplyMemoryManager;
   ///  Buffer wrapper
-  {$IFDEF TRACEBUFFER}
-    {$IFNDEF TRACEINSTANCES}
+  {$IFDEF BUFFER_COUNTER}
+    {$IFNDEF INSTANCES_COUNTER}
     AddressPatch(GetMethodAddress(@OldNewInstance), @TObjectHack.NNewInstance);
     {$ENDIF}
   {$ENDIF}
 
   ///Class wrapper
-  {$IFDEF TRACEINSTANCES}
+  {$IFDEF INSTANCES_COUNTER}
   AddressPatch(GetMethodAddress(@OldNewInstance), @TRfObjectHack.NNewInstanceTrace);
   {$ENDIF}
 end;

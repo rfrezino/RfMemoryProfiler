@@ -1,0 +1,49 @@
+------  Memory Allocation Control
+Objective: Count how much memory buffer with determined size is all allocated by the system, exemple:
+
+Buffer Size | Amount of Allocs | Total Memory Used
+----------------------------------------------------
+	325		|		35265	   | 	11461125
+	23 		|    32		   |     736
+	...		|		...		   |	...
+
+
+How I control the memory allocation and deallocation:
+
+	I created an array of integer that goes from 0 to 65365. This array will be used to keep the amount of allocs of the corresponding size.
+	For example, If I call GetMem for a buffer of 523, the Array[523] will increase + 1.
+
+	The GetMem, ReallocMem, AllocMem, the problem is easy to resolve 'cause one of it's parameters is the size of the buffer. So I can use this to increase the position of the array.
+
+	The problem cames with the FreeMem, 'cause the only parameter is the pointer of the buffer. I don't know it's size.
+		- I can't create a list to keep the Pointer and it's size. 'Cause there is SO much allocations, it will be so much expensive to the application keep searching/adding/removing items from this list. And this list must to be protected with critical section etc etc. So no way.
+
+	How I'm trying to solve this problem:
+		Just to remeber I created the array to keep the number off allocations.
+
+		Items:     0							                65365
+		           |................................|
+		Addess:   $X						      	$(65365x SizeOf(Integer))
+
+		When allocators methos are called, for example: GetMem(52);
+		I changed the behavior of it, I will alloc the requested size (52), but I'll add here a size of an integer;
+		So I will have:
+
+		$0 $3  $7  $11                  $64
+		...|...|...|....................|
+
+    In 0..3 bits =  filled with the parity value, used to know what was created or not by the buffer controller
+    In 4..7 bits =  filled with the address of the corresponding space of the array.
+    In 8..11 bits =  filled with the frame code address of the memory requester.
+
+
+    In this case the address position $array(52).
+                    And I add + (SizeOf(Integer)) to the address result of the GetMem, so it will have access just the 52 bytes that
+                    were asked for.
+
+		When the FreeMem are called. What I do is:
+			- Get the pointer asked for deallocation.
+			- Decrease the pointer by the size of the integer
+			- Check if the address of the current pointer is relative to the Array of control address.
+			- If it is, I use the the address and decrease 1 from the Array position
+			- And ask for the FreeMem

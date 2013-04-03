@@ -1,4 +1,4 @@
-unit uRfMemoryProfiler;
+﻿unit uRfMemoryProfiler;
 
 interface
 {$Include RfMemoryProfilerOptions.inc}
@@ -117,7 +117,12 @@ type
 var
   RfMapOfBufferAllocation: TArrayOfMap;
   RfIsMemoryProfilerActive: Boolean;
-  SMapofBufferAddressAllocation: TArrayOfMapAddress;
+
+  RfIsNamedBufferMapActive: Boolean;
+  RfIsObjectAllocantionTraceOn: Boolean;
+  RfIsBufferAllocationTraceOn: Boolean;
+
+  RfMapofBufferAddressAllocation: TArrayOfMapAddress;
 
 implementation
 
@@ -130,12 +135,6 @@ const
   GAP_SIZE = SizeOf(PARITY_BYTE) + SIZE_OF_INT {$IFDEF BUFFER_TRACKER} + SIZE_OF_INT {$ENDIF};
   /// Delphi linker starts the code section at this fixed offset
   CODE_SECTION = $1000;
-
-var
-  {Flag to say if the memory watcher is on or off}
-  SIsNamedBufferMapActive: Boolean;
-  SIsObjectAllocantionTraceOn: Boolean;
-  SIsBufferAllocationTraceOn: Boolean;
 
 type
   TThreadMemory = array [0..SIZE_OF_MAP] of Integer;
@@ -188,6 +187,50 @@ var
   SRCBufferCounter: TCriticalSection;
 
 {$REGION 'Util'}
+{FastMM resource}
+procedure GetStackRange(var AStackBaseAddress, ACurrentStackPointer: NativeUInt);
+asm
+  mov ecx, fs:[4]
+  mov [eax], ecx
+  mov [edx], ebp
+end;
+
+{FastMM resource}
+procedure GetFrameBasedStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth, ASkipFrames: Cardinal);
+var
+  LStackTop, LStackBottom, LCurrentFrame: NativeUInt;
+begin
+  {Get the call stack top and current bottom}
+  GetStackRange(LStackTop, LStackBottom);
+  Dec(LStackTop, SizeOf(Pointer) - 1);
+  {Get the current frame start}
+  LCurrentFrame := LStackBottom;
+  {Fill the call stack}
+  while (AMaxDepth > 0)
+    and (LCurrentFrame >= LStackBottom)
+    and (LCurrentFrame < LStackTop) do
+  begin
+    {Ignore the requested number of levels}
+    if ASkipFrames = 0 then
+    begin
+      AReturnAddresses^ := PNativeUInt(LCurrentFrame + SizeOf(Pointer))^;
+      Inc(AReturnAddresses);
+      Dec(AMaxDepth);
+    end
+    else
+      Dec(ASkipFrames);
+    {Get the next frame}
+    LCurrentFrame := PNativeUInt(LCurrentFrame)^;
+  end;
+  {Clear the remaining entries}
+  while AMaxDepth > 0 do
+  begin
+    AReturnAddresses^ := 0;
+    Inc(AReturnAddresses);
+    Dec(AMaxDepth);
+  end;
+end;
+
 procedure GetCodeOffset;
 var
   LMapFile: string;
@@ -196,6 +239,7 @@ begin
   SGetModuleHandle := GetModuleHandle(Pointer(ExtractFileName(LMapFile))) + CODE_SECTION;
 end;
 
+{FastCode source}
 function GetMethodAddress(AStub: Pointer): Pointer;
 const
   CALL_OPCODE = $E8;
@@ -209,6 +253,7 @@ begin
     Result := nil;
 end;
 
+{FastCode source}
 procedure AddressPatch(const ASource, ADestination: Pointer);
 const
   JMP_OPCODE = $E9;
@@ -287,38 +332,14 @@ type
   end;
 
 function GetSectorIdentificator: Integer;
-var
-  LStack: PStackFrame;
 begin
-  asm
-    mov eax, ebp
-    mov LStack, eax
-  end;
-  Result := 0;
-  LStack := PStackFrame(LStack^.CallerFrame);
-  LStack := PStackFrame(LStack^.CallerFrame);
-  Result := LStack^.CallerAddr;
+  GetFrameBasedStackTrace(@Result, 1, 2);
   Dec(Result, SGetModuleHandle);
 end;
 
 function GetMemAllocIdentificator: Integer;
-const
-  MIN_FRAME = 66000;
-var
-  LStack: PStackFrame;
 begin
-  asm
-    mov eax, ebp
-    mov LStack, eax
-  end;
-  Result := 0;
-  if LStack^.CallerFrame > MIN_FRAME then
-    LStack := PStackFrame(LStack^.CallerFrame);
-  if LStack^.CallerFrame > MIN_FRAME then
-    LStack := PStackFrame(LStack^.CallerFrame);
-  if LStack^.CallerFrame > MIN_FRAME then
-    LStack := PStackFrame(LStack^.CallerFrame);
-  Result := LStack^.CallerAddr;
+  GetFrameBasedStackTrace(@Result, 1, 3);
   Dec(Result, SGetModuleHandle);
 end;
 
@@ -610,13 +631,13 @@ var
   LMemoryBufferAddress: TMemoryAddressBuffer;
   LLastMemoryBufferAddress: TMemoryAddressBuffer;
 begin
-  if SMapofBufferAddressAllocation[ABufferSize] = nil then
+  if RfMapofBufferAddressAllocation[ABufferSize] = nil then
   begin
     Result := 0;
     Exit;
   end;
 
-  LLastMemoryBufferAddress := SMapofBufferAddressAllocation[ABufferSize];
+  LLastMemoryBufferAddress := RfMapofBufferAddressAllocation[ABufferSize];
   LMemoryBufferAddress := LLastMemoryBufferAddress;
 
   while (LMemoryBufferAddress <> nil) do
@@ -642,17 +663,17 @@ var
   LMemoryBufferAddress: TMemoryAddressBuffer;
   LLastMemoryBufferAddress: TMemoryAddressBuffer;
 begin
-  if SMapofBufferAddressAllocation[ABufSize] = nil then
+  if RfMapofBufferAddressAllocation[ABufSize] = nil then
   begin
-    SMapofBufferAddressAllocation[ABufSize] := TMemoryAddressBuffer.Create;
-    SMapofBufferAddressAllocation[ABufSize].NumAllocations := AValue;
+    RfMapofBufferAddressAllocation[ABufSize] := TMemoryAddressBuffer.Create;
+    RfMapofBufferAddressAllocation[ABufSize].NumAllocations := AValue;
     {$IFDEF BUFFER_TRACKER}
-    SMapofBufferAddressAllocation[ABufSize].AllocationAddr := AInitialPointer.AllocationAddr;
+    RfMapofBufferAddressAllocation[ABufSize].AllocationAddr := AInitialPointer.AllocationAddr;
     {$ENDIF}
     Exit;
   end;
 
-  LLastMemoryBufferAddress := SMapofBufferAddressAllocation[ABufSize];
+  LLastMemoryBufferAddress := RfMapofBufferAddressAllocation[ABufSize];
   LMemoryBufferAddress := LLastMemoryBufferAddress;
 
   while (LMemoryBufferAddress <> nil) do
@@ -803,7 +824,9 @@ begin
 
   LMappedRecord^.ClearParityByte;
   LMappedRecord^.DecMapSizeCounter;
+  {$IFDEF BUFFER_TRACKER}
   LMappedRecord^.DecAllocationMap;
+  {$ENDIF}
 
   Result := SDefaultReallocMem(LMappedRecord, Size + GAP_SIZE);
 
@@ -811,7 +834,9 @@ begin
   LMappedRecord^.SetParityByte;
   LMappedRecord^.SizeCounterAddr := Integer(@RfMapOfBufferAllocation[LSizeMap]);
   LMappedRecord^.IncMapSizeCounter;
+  {$IFDEF BUFFER_TRACKER}
   LMappedRecord^.IncAllocationMap;
+  {$ENDIF}
 
   Result := Pointer(Integer(LMappedRecord) + GAP_SIZE);
 end;
@@ -832,11 +857,11 @@ var
 begin
   GetMemoryManager(LMemoryManager);
   SDefaultGetMem := LMemoryManager.GetMem;
-  SIsNamedBufferMapActive := False;
+  RfIsNamedBufferMapActive := False;
   {$IFNDEF BUFFER_COUNTER}
   Exit;
   {$ENDIF}
-  SIsNamedBufferMapActive := True;
+  RfIsNamedBufferMapActive := True;
   LMemoryManager.GetMem := NGetMem;
 
   SDefaultFreeMem := LMemoryManager.FreeMem;
@@ -921,14 +946,14 @@ begin
   SRCBufferCounter := TCriticalSection.Create;
   GetCodeOffset;
 
-  SIsObjectAllocantionTraceOn := False;
+  RfIsObjectAllocantionTraceOn := False;
   {$IFDEF INSTANCES_TRACKER}
-  SIsObjectAllocantionTraceOn := True;
+  RfIsObjectAllocantionTraceOn := True;
   {$ENDIF}
 
-  SIsBufferAllocationTraceOn := False;
+  RfIsBufferAllocationTraceOn := False;
   {$IFDEF BUFFER_TRACKER}
-  SIsBufferAllocationTraceOn := True;
+  RfIsBufferAllocationTraceOn := True;
   {$ENDIF}
 
   {$IFDEF INSTANCES_COUNTER}

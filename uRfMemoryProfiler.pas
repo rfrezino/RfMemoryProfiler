@@ -178,7 +178,7 @@ var
   {$ENDIF}
 
   SThreadMemory: TThreadMemory;
-  SListClassVars: TList;
+  SListRfClassController: TList;
   SGetModuleHandle: Cardinal;
 
   SInitialSection: Cardinal;
@@ -301,9 +301,9 @@ begin
   try
     LStringList.Add('CLASS | INSTANCE SIZE | NUMBER OF INSTANCES | TOTAL');
     {$IFDEF INSTANCES_COUNTER}
-    for i := 0 to SListClassVars.Count -1 do
+    for i := 0 to SListRfClassController.Count -1 do
     begin
-      LClassVar := TRfClassController(SListClassVars.Items[I]);
+      LClassVar := TRfClassController(SListRfClassController.Items[I]);
       if LClassVar.BaseInstanceCount > 0 then
       begin
         LStringList.Add(Format('%s | %d bytes | %d | %d bytes',
@@ -345,7 +345,7 @@ end;
 
 function RfGetInstanceList: TList;
 begin
-  Result := SListClassVars;
+  Result := SListRfClassController;
 end;
 
 function _InitializeHook(AClass: TClass; AOffset: Integer; HookAddress: Pointer): Boolean;
@@ -485,7 +485,7 @@ end;
 { TClassVars }
 constructor TRfClassController.Create;
 begin
-  SListClassVars.Add(Self);
+  SListRfClassController.Add(Self);
   {$IFDEF INSTANCES_TRACKER}
   AllocationMap := TAllocationMap.Create;
   {$ENDIF}
@@ -957,7 +957,7 @@ begin
   {$ENDIF}
 
   {$IFDEF INSTANCES_COUNTER}
-  SListClassVars := TList.Create;
+  SListRfClassController := TList.Create;
   {$ENDIF}
 
   {$IFDEF BUFFER_COUNTER}

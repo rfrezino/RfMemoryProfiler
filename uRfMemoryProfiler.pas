@@ -69,6 +69,7 @@ type
   private
     OldVMTFreeInstance: Pointer;
   public
+    BaseClassType: TClass;
     BaseInstanceCount: Integer;
     BaseClassName: string;
     BaseParentClassName: string;
@@ -113,6 +114,7 @@ type
   procedure RegisterRfClassController(const Classes: array of TRfObjectHack);
 
   function GetAmountOfBufferAllocations(ACallerAddr: Cardinal; ABufferSize: Cardinal): Integer;
+  function GetAmountOfAllocationOfClass(AClassType: TClass): Integer;
 
 var
   RfMapOfBufferAllocation: TArrayOfMap;
@@ -127,7 +129,7 @@ var
 implementation
 
 uses
-   Windows, SysUtils, TypInfo;
+   Windows, SysUtils, TypInfo, PsAPI;
 
 const
   SIZE_OF_INT = SizeOf(Integer);
@@ -291,6 +293,15 @@ begin
   end;
 end;
 
+function CurrentMemoryUsage: Cardinal;
+var
+  LProcessMemoryCounters: TProcessMemoryCounters;
+begin
+  LProcessMemoryCounters.cb := SizeOf(LProcessMemoryCounters) ;
+  if GetProcessMemoryInfo(GetCurrentProcess, @LProcessMemoryCounters, SizeOf(LProcessMemoryCounters)) then
+    Result := LProcessMemoryCounters.WorkingSetSize;
+end;
+
 procedure SaveMemoryProfileToFile;
 var
   LStringList: TStringList;
@@ -299,7 +310,9 @@ var
 begin
   LStringList := TStringList.Create;
   try
+    LStringList.Add(Format('Total Memory Used By App: %d Mbs', [(CurrentMemoryUsage div 1024) div 1024]));
     LStringList.Add('CLASS | INSTANCE SIZE | NUMBER OF INSTANCES | TOTAL');
+
     {$IFDEF INSTANCES_COUNTER}
     for i := 0 to SListRfClassController.Count -1 do
     begin
@@ -432,6 +445,7 @@ class procedure TRfObjectHack.SetRfClassController(ARfClassController: TRfClassC
 begin
   ARfClassController.BaseClassName := Self.ClassName;
   ARfClassController.BaseInstanceSize := Self.InstanceSize;
+  ARfClassController.BaseClassType := Self;
   ARfClassController.OldVMTFreeInstance := PPointer(Integer(TClass(Self)) + vmtFreeInstance)^;
 
   if Self.ClassParent <> nil then
@@ -624,6 +638,23 @@ end;
 function MemorySizeOfPos(APos: Integer): Integer; inline;
 begin
   Result := (APos - Integer(@RfMapOfBufferAllocation)) div SIZE_OF_INT;
+end;
+
+function GetAmountOfAllocationOfClass(AClassType: TClass): Integer;
+var
+  I: Integer;
+  LRfClassController: TRfClassController;
+begin
+  Result := 0;
+  for I := 0 to SListRfClassController.Count -1 do
+  begin
+    LRfClassController := TRfClassController(SListRfClassController.Items[I]);
+    if LRfClassController.BaseClassType = AClassType then
+    begin
+      Result := LRfClassController.BaseInstanceCount;
+      Exit;
+    end;
+  end;
 end;
 
 function GetAmountOfBufferAllocations(ACallerAddr: Cardinal; ABufferSize: Cardinal): Integer;

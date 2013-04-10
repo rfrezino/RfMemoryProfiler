@@ -7,7 +7,7 @@ uses
   Classes, SyncObjs {$IFDEF UNITTEST}, uUnitTestHeader {$ENDIF};
 
   {It's a simple output to save the report of memory usage on the disk. It'll create a file called test.txt in the executable directory}
-  procedure SaveMemoryProfileToFile;
+  procedure SaveMemoryProfileToFile(AFilePath: string = '');
 
   {Get the current list of instances (TClassVars)}
   function RfGetInstanceList: TList;
@@ -116,14 +116,17 @@ type
   function GetAmountOfBufferAllocations(ACallerAddr: Cardinal; ABufferSize: Cardinal): Integer;
   function GetAmountOfAllocationOfClass(AClassType: TClass): Integer;
 
+  function GetBytesAmountOfInstanceAllocation: Integer;
+  function GetBytesAmountOfBufferAllocation: Integer;
+  function GetBytesAmountOfUsedMemory: Integer;
+
 var
-  RfMapOfBufferAllocation: TArrayOfMap;
   RfIsMemoryProfilerActive: Boolean;
 
-  RfIsNamedBufferMapActive: Boolean;
   RfIsObjectAllocantionTraceOn: Boolean;
   RfIsBufferAllocationTraceOn: Boolean;
 
+  RfMapOfBufferAllocation: TArrayOfMap;
   RfMapofBufferAddressAllocation: TArrayOfMapAddress;
 
 implementation
@@ -302,12 +305,15 @@ begin
     Result := LProcessMemoryCounters.WorkingSetSize;
 end;
 
-procedure SaveMemoryProfileToFile;
+procedure SaveMemoryProfileToFile(AFilePath: string);
 var
   LStringList: TStringList;
   i: Integer;
   LClassVar: TRfClassController;
 begin
+  if AFilePath = '' then
+    AFilePath := ExtractFilePath(ParamStr(0)) + 'RfMemoryReport.txt';
+
   LStringList := TStringList.Create;
   try
     LStringList.Add(Format('Total Memory Used By App: %d Mbs', [(CurrentMemoryUsage div 1024) div 1024]));
@@ -331,7 +337,7 @@ begin
         LStringList.Add(Format('Buffer | %d bytes | %d | %d bytes', [I, RfMapOfBufferAllocation[I], RfMapOfBufferAllocation[I] * I]));
     {$ENDIF}
 
-    LStringList.SaveToFile(ExtractFilePath(ParamStr(0)) + 'RfMemoryReport.txt');
+    LStringList.SaveToFile(AFilePath);
   finally
     FreeAndNil(LStringList);
   end;
@@ -657,6 +663,35 @@ begin
   end;
 end;
 
+function GetBytesAmountOfInstanceAllocation: Integer;
+var
+  I: Integer;
+  LRfClassController: TRfClassController;
+begin
+  Result := 0;
+  for I := 0 to SListRfClassController.Count -1 do
+  begin
+    LRfClassController := TRfClassController(SListRfClassController.Items[I]);
+    if LRfClassController.BaseInstanceCount > 0 then
+      Result := (LRfClassController.BaseInstanceCount * LRfClassController.BaseInstanceSize)+ Result;
+  end;
+end;
+
+function GetBytesAmountOfBufferAllocation: Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to SIZE_OF_MAP do
+    if RfMapOfBufferAllocation[I] > 0 then
+      Result := (I * RfMapOfBufferAllocation[I]) + Result;
+end;
+
+function GetBytesAmountOfUsedMemory: Integer;
+begin
+  Result := GetBytesAmountOfInstanceAllocation + GetBytesAmountOfBufferAllocation;
+end;
+
 function GetAmountOfBufferAllocations(ACallerAddr: Cardinal; ABufferSize: Cardinal): Integer;
 var
   LMemoryBufferAddress: TMemoryAddressBuffer;
@@ -888,11 +923,9 @@ var
 begin
   GetMemoryManager(LMemoryManager);
   SDefaultGetMem := LMemoryManager.GetMem;
-  RfIsNamedBufferMapActive := False;
   {$IFNDEF BUFFER_COUNTER}
   Exit;
   {$ENDIF}
-  RfIsNamedBufferMapActive := True;
   LMemoryManager.GetMem := NGetMem;
 
   SDefaultFreeMem := LMemoryManager.FreeMem;
@@ -1012,7 +1045,9 @@ end;
 initialization
   RfIsMemoryProfilerActive := False;
   {$IFNDEF UNITTEST}
-  InitializeRfMemoryProfiler;
+    {$IFNDEF FASTMM}
+    InitializeRfMemoryProfiler;
+    {$ENDIF}
   {$ENDIF}
 
 end.

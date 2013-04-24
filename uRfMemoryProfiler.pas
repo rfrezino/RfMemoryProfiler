@@ -352,13 +352,13 @@ type
 
 function GetSectorIdentificator: Integer;
 begin
-  GetFrameBasedStackTrace(@Result, 1, 2);
+  GetFrameBasedStackTrace(@Result, 1, 3);
   Dec(Result, SGetModuleHandle);
 end;
 
 function GetMemAllocIdentificator: Integer;
 begin
-  GetFrameBasedStackTrace(@Result, 1, 3);
+  GetFrameBasedStackTrace(@Result, 1, 4);
   Dec(Result, SGetModuleHandle);
 end;
 

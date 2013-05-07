@@ -310,14 +310,21 @@ var
   LStringList: TStringList;
   i: Integer;
   LClassVar: TRfClassController;
+  iMem: Integer;
+  LItemMemory: TCallerAllocator;
+  LBufferAllocation: TMemoryAddressBuffer;
 begin
   if AFilePath = '' then
     AFilePath := ExtractFilePath(ParamStr(0)) + 'RfMemoryReport.txt';
 
   LStringList := TStringList.Create;
   try
+    LStringList.Add('Application Path: ' + ParamStr(0));
     LStringList.Add(Format('Total Memory Used By App: %d Mbs', [(CurrentMemoryUsage div 1024) div 1024]));
-    LStringList.Add('CLASS | INSTANCE SIZE | NUMBER OF INSTANCES | TOTAL');
+    {$IFDEF INSTANCES_TRACKER}
+    LStringList.Add(Format('Module Handle: %d', [SGetModuleHandle]));
+    {$ENDIF}
+    LStringList.Add({$IFDEF INSTANCES_TRACKER}'ALLOC ADDR | ' {$ENDIF} + 'CLASS | INSTANCE SIZE | NUMBER OF INSTANCES | TOTAL');
 
     {$IFDEF INSTANCES_COUNTER}
     for i := 0 to SListRfClassController.Count -1 do
@@ -325,8 +332,18 @@ begin
       LClassVar := TRfClassController(SListRfClassController.Items[I]);
       if LClassVar.BaseInstanceCount > 0 then
       begin
+        {$IFDEF INSTANCES_TRACKER}
+        for iMem := 0 to LClassVar.AllocationMap.Count -1 do
+        begin
+          LItemMemory := LClassVar.AllocationMap.Items[iMem];
+          if LItemMemory.NumAllocations > 0 then
+            LStringList.Add(Format('%d | %s | %d bytes | %d | %d bytes',
+              [LItemMemory.MemAddress, LClassVar.BaseClassName, LClassVar.BaseInstanceSize, LClassVar.BaseInstanceCount, LClassVar.BaseInstanceSize * LItemMemory.NumAllocations]));
+        end;
+        {$ELSE}
         LStringList.Add(Format('%s | %d bytes | %d | %d bytes',
           [LClassVar.BaseClassName, LClassVar.BaseInstanceSize, LClassVar.BaseInstanceCount, LClassVar.BaseInstanceSize * LClassVar.BaseInstanceCount]));
+        {$ENDIF}
       end;
     end;
     {$ENDIF}
@@ -334,7 +351,19 @@ begin
     {$IFDEF BUFFER_COUNTER}
     for I := 0 to SIZE_OF_MAP do
       if RfMapOfBufferAllocation[I] > 0 then
+      begin
+        {$IFDEF BUFFER_TRACKER}
+        LBufferAllocation := RfMapofBufferAddressAllocation[I];
+        while LBufferAllocation <> nil do
+        begin
+          if LBufferAllocation.NumAllocations > 0 then
+            LStringList.Add(Format('%d | Buffer | %d bytes | %d | %d bytes', [LBufferAllocation.AllocationAddr, I, LBufferAllocation.NumAllocations, LBufferAllocation.NumAllocations * I]));
+          LBufferAllocation := LBufferAllocation.Next;
+        end;
+        {$ELSE}
         LStringList.Add(Format('Buffer | %d bytes | %d | %d bytes', [I, RfMapOfBufferAllocation[I], RfMapOfBufferAllocation[I] * I]));
+        {$ENDIF}
+      end;
     {$ENDIF}
 
     LStringList.SaveToFile(AFilePath);
@@ -353,13 +382,11 @@ type
 function GetSectorIdentificator: Integer;
 begin
   GetFrameBasedStackTrace(@Result, 1, 3);
-  Dec(Result, SGetModuleHandle);
 end;
 
 function GetMemAllocIdentificator: Integer;
 begin
   GetFrameBasedStackTrace(@Result, 1, 4);
-  Dec(Result, SGetModuleHandle);
 end;
 
 function RfGetInstanceList: TList;
